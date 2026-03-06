@@ -14,3 +14,8 @@ tmp/
 *.sqlite3
 *.db
 .DS_Store
+
+# Exclude MCP files from Cloud deployment
+src/mcp_server.py
+start_mcp.sh
+mcp.log

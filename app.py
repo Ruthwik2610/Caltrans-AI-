@@ -48,7 +48,7 @@ with logo_col:
 # Header
 st.markdown(
     "<p style='text-align: center; color: black; margin-top: -10px; font-size: 30px;'>"
-    "<span style='font-weight: bold'>Agentic AI Learning Program – Foundational Learning</span></p>",
+    "<span style='font-weight: bold'>CUCP: Transforming Documents into Insights with Agentic AI</span></p>",
     unsafe_allow_html=True,
 )
 

@@ -64,3 +64,8 @@ logs/
 env.txt
 llm_raw_test.md
 extracted_rubrics.txt
+
+# Documents and secrets
+*.pdf
+*.docx
+cloud-run-env.yaml
