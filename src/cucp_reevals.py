@@ -112,10 +112,11 @@ def run_level_2_classification(facts: list, combined_financials: str = "", stage
 Your job is to look at extracted raw facts and classify them legally.
 
 Categories to choose from:
-- "Systemic Barrier"
-- "Ordinary Business Risk"
-- "Economic Hardship"
-- "Not a SED Barrier"{precedents_text}
+- "Social Disadvantage" (Personal experiences of discrimination — bias in contracting, exclusion from networks, personal prejudice)
+- "Economic Disadvantage" (Capital access barriers — denied loans, bonding difficulties, financial limitations)
+- "Institutional/Systemic Barrier" (Discriminatory institutional policies — not individual acts, but systemic patterns)
+- "Ordinary Business Risk" (Setbacks from normal market forces — competition, pricing, general economy)
+- "Insufficient Evidence" (The incident lacks enough detail to classify under §26.67){precedents_text}
 
 OUTPUT FORMAT:
 Return valid JSON mapping each input fact ID to a classification.
@@ -124,6 +125,7 @@ Return valid JSON mapping each input fact ID to a classification.
     {{
       "fact_id": "fact_1",
       "classification": "Chosen Category",
+      "summary": "One-sentence plain-language summary of the fact being classified",
       "reasoning": "Explanation based on 49 CFR §26.67"
     }}
   ]
@@ -235,9 +237,11 @@ request_info MUST be "Yes" or "No".
 # ==============================================================================
 # REPORT GENERATION
 # ==============================================================================
-def generate_final_md_report(level_1_data: dict, level_3_data: dict) -> str:
+def generate_final_md_report(level_1_data: dict, level_2_data: dict, level_3_data: dict, analyst_overrides: list = None) -> str:
     """Takes the approved JSON state and synthesizes the exact markdown format for the UI."""
     current_date = datetime.datetime.now().strftime("%B %d, %Y")
+    if analyst_overrides is None:
+        analyst_overrides = []
     
     # 1. Extraction Block
     md = f"### 📄 CUCP EVALUATION REPORT\n"
@@ -246,20 +250,38 @@ def generate_final_md_report(level_1_data: dict, level_3_data: dict) -> str:
     md += f"**Status:** {level_3_data.get('final_decision', 'Unknown')}\n\n---\n\n"
     
     # Pre-Scoring Audit
-    md += "### PRE-SCORING AUDIT\n"
+    md += "### 🔍 PRE-SCORING AUDIT\n"
     facts = level_1_data.get('extracted_facts', [])
     if not facts:
         md += "NONE\n"
     for idx, f in enumerate(facts):
-        md += f"Incident {idx+1}: {f.get('what', 'N/A')}\n"
-        md += f"- When: {f.get('when', 'NOT PROVIDED')}\n"
-        md += f"- Where: {f.get('where', 'NOT PROVIDED')}\n"
-        md += f"- Who: {f.get('who', 'NOT PROVIDED')}\n"
-        md += f"- What: {f.get('what', 'NOT PROVIDED')}\n"
-        md += f"- Why: {f.get('why', 'NOT PROVIDED')}\n"
-        md += f"- How/Magnitude: {f.get('magnitude', 'NOT PROVIDED')}\n\n"
+        md += f"**Incident {idx+1}: {f.get('what', 'N/A')}**\n"
+        md += f"- **When:** {f.get('when', 'NOT PROVIDED')}\n"
+        md += f"- **Where:** {f.get('where', 'NOT PROVIDED')}\n"
+        md += f"- **Who:** {f.get('who', 'NOT PROVIDED')}\n"
+        md += f"- **What:** {f.get('what', 'NOT PROVIDED')}\n"
+        md += f"- **Why:** {f.get('why', 'NOT PROVIDED')}\n"
+        md += f"- **How/Magnitude:** {f.get('magnitude', 'NOT PROVIDED')}\n\n"
+        
+    if analyst_overrides:
+        md += "### 🧑‍⚖️ ANALYST OVERRIDES\n"
+        md += "The following external facts or manual adjustments were provided by the human reviewer:\n"
+        for override in analyst_overrides:
+            md += f"- **{override['field']}:** {override['value']} *(Justification: {override['reasoning']})*\n"
+        md += "\n"
     
     md += "---\n\n"
+    
+    # Classification Summary
+    md += "### 🏷️ CLASSIFICATION SUMMARY\n"
+    classifications = level_2_data.get('classifications', [])
+    if not classifications:
+        md += "NONE\n"
+    for idx, c in enumerate(classifications):
+        md += f"- **Fact {c.get('fact_id', idx+1)}** → `{c.get('classification', 'Unclassified')}`\n"
+        md += f"  - *Summary:* {c.get('summary', 'N/A')}\n"
+    
+    md += "\n---\n\n"
     
     # Part 1 Table
     md += "### PART 1 – EVALUATION TABLE (DECISION SUMMARY)\n\n"
@@ -274,7 +296,7 @@ def generate_final_md_report(level_1_data: dict, level_3_data: dict) -> str:
         if is_fail == "Yes":
            overall_fail = True 
         
-        md += f"| {c['s_no']} | {c['category']} | {c['qualification']} | {is_pass} | {is_fail} | {req_info} | {c.get('confidence', '10.0')} | N/A – criterion-level only |\n"
+        md += f"| {c['s_no']} | {c['category']} | {c['qualification']} | {is_pass} | {is_fail} | {req_info} | {round(float(c.get('confidence', 10.0)), 1)} | N/A – criterion-level only |\n"
         
     final_pass = "No" if overall_fail else "Yes"
     final_fail = "Yes" if overall_fail else "No"
@@ -290,7 +312,7 @@ def generate_final_md_report(level_1_data: dict, level_3_data: dict) -> str:
         is_pass = "Yes" if c.get('pass_fail', '').lower() == 'pass' else "No"
         is_fail = "Yes" if c.get('pass_fail', '').lower() == 'fail' else "No"
         req_info = c.get('request_info', 'No')
-        dec_map = f"Pass = {is_pass}; Fail = {is_fail}; Req Info = {req_info}; Conf = {c.get('confidence', '10.0')}"
+        dec_map = f"Pass = {is_pass}; Fail = {is_fail}; Req Info = {req_info}; Conf = {round(float(c.get('confidence', 10.0)), 1)}"
         
         md += f"| {c['s_no']} | {c['category']} | {c['qualification']} | {c.get('rule_requires','')} | {c.get('evidence_summary','')} | {c.get('reasoning','')} | {dec_map} |\n"
         
@@ -316,4 +338,4 @@ def cucp_reevaluations(uploaded_pdf, firm_revenues=None):
     print("#--- Run L3 ---#")
     l3 = run_level_3_thresholds(l2.get("classifications", []), l1.get("extracted_facts", []), l1.get("cross_reference_result", "None"))
     print("#--- Gen MD ---#")
-    return generate_final_md_report(l1, l3)
+    return generate_final_md_report(l1, l2, l3)

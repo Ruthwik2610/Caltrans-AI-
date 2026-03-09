@@ -235,10 +235,7 @@ if app_option != "Select the Usecase":
     elif app_option == "Guardrails":
         text_based("Guardrails", "None")
 
-    elif app_option in [
-        "RAG-Document Intelligence",
-        "Human in the feedback Loop",
-    ]:
+    elif app_option == "RAG-Document Intelligence":
         with col22:
             st.subheader("Upload the Policy Document")
         with col24:
@@ -248,6 +245,27 @@ if app_option != "Select the Usecase":
                 key="knowledge_base_upload",
             )
         text_based("RAG-Document Intelligence", knowledge_base)
+
+    elif app_option == "Human in the feedback Loop":
+        with col22:
+            st.subheader("Upload the Policy Document")
+        with col24:
+            knowledge_base = st.file_uploader(
+                "Upload Knowledge Base",
+                type=["pdf", "txt"],
+                key="knowledge_base_upload",
+            )
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        # Wrap the whole feedback component in a bordered container with rounded edges
+        feedback_container = st.container(border=True)
+        with feedback_container:
+            st.markdown(
+                "<h3 style='margin-bottom: 0;'>Human in the Feedback Loop</h3>"
+                "<hr style='margin-top: 5px; margin-bottom: 20px;'>", 
+                unsafe_allow_html=True
+            )
+            text_based("Human in the feedback Loop", knowledge_base)
 
     elif app_option == "LLM Training":
         with col22:
@@ -432,6 +450,24 @@ if app_option != "Select the Usecase":
     
                 # Separator
                 st.markdown('<div style="height: 1px; background: rgba(255,255,255,0.12); margin: 0 0 14px 0;"></div>', unsafe_allow_html=True)
+                
+                # UX-5: Correction Timeline
+                all_staged = (st.session_state.get("staged_precedents", {}).get("level_1_precedents", []) +
+                              st.session_state.get("staged_precedents", {}).get("level_2_precedents", []) +
+                              st.session_state.get("staged_precedents", {}).get("level_3_precedents", []))
+                a_overrides = st.session_state.get('analyst_overrides', [])
+                if all_staged or a_overrides:
+                    with st.expander("🕒 Correction History (This Session)", expanded=False):
+                        if a_overrides:
+                            st.markdown("**Analyst Overrides:**")
+                            for ao in a_overrides:
+                                st.markdown(f"- {ao['field']}: {ao['value']}")
+                        if all_staged:
+                            st.markdown("**AI Precedents:**")
+                            for p in all_staged:
+                                target_display = p.get('target', 'Unknown')
+                                st.markdown(f"- Overrode **{str(target_display)[:30]}** ➔ {p.get('correction')}")
+                    st.markdown('<div style="height: 1px; background: rgba(255,255,255,0.12); margin: 14px 0;"></div>', unsafe_allow_html=True)
     
                 # Merge Section
                 st.markdown("""
@@ -502,6 +538,8 @@ if app_option != "Select the Usecase":
             """, unsafe_allow_html=True)
 
         if cucp_files:
+            if len(cucp_files) > 1:
+                st.warning(f"⚠️ You uploaded {len(cucp_files)} files. Only the first file will be processed in interactive mode. Process one narrative at a time.")
             cucp_file = cucp_files[0]  # Interactive mode processes one document at a time
             file_name = cucp_file.name
             base_name = file_name.rsplit(".", 1)[0]
@@ -511,7 +549,7 @@ if app_option != "Select the Usecase":
                 st.session_state.current_file_name = file_name
             elif st.session_state.current_file_name != file_name:
                 # File changed! Wipe staged precedents and process state
-                for key in ['eval_stage', 'pdf_text', 'l1_data', 'l2_data', 'l3_data', 'staged_precedents']:
+                for key in ['eval_stage', 'pdf_text', 'l1_data', 'l2_data', 'l3_data', 'staged_precedents', 'analyst_overrides']:
                     if key in st.session_state:
                         del st.session_state[key]
                 st.session_state.current_file_name = file_name
@@ -526,14 +564,39 @@ if app_option != "Select the Usecase":
                     "level_2_precedents": [],
                     "level_3_precedents": []
                 }
+            if 'analyst_overrides' not in st.session_state:
+                st.session_state.analyst_overrides = []
             if 'pdf_text' not in st.session_state:
                 from src.cucp_reevals import extract_text_from_pdf
-                st.session_state.pdf_text = extract_text_from_pdf(cucp_file)
+                extracted = extract_text_from_pdf(cucp_file)
+                if not extracted or not extracted.strip():
+                    st.error("⚠️ Could not extract any text from this PDF. The file may be scanned/image-based or corrupted. Please upload a text-based PDF.")
+                    st.stop()
+                st.session_state.pdf_text = extracted
             
             from src.cucp_reevals import run_level_1_extraction, run_level_2_classification, run_level_3_thresholds, generate_final_md_report
             from src.memory_manager import add_precedent
             
+            # --- Thicker border on correction/feedback expanders + evaluation container ---
+            st.markdown("""
+            <style>
+            /* Slightly thicker border on correction/feedback expanders */
+            details[data-testid="stExpander"] {
+                border: 2px solid rgba(59,130,246,0.25) !important;
+                border-radius: 12px !important;
+            }
+            /* Rounded border around evaluation container (the vertical block that holds the marker) */
+            div[data-testid="stVerticalBlock"]:has(> div.eval-border-marker) {
+                border: 1.5px solid rgba(148,163,184,0.3);
+                border-radius: 16px;
+                padding: 24px 20px 20px 20px;
+            }
+            .eval-border-marker { display: none; }
+            </style>
+            """, unsafe_allow_html=True)
+            
             # --- Progress Stepper ---
+            st.markdown('<div class="eval-border-marker"></div>', unsafe_allow_html=True)
             step_labels = ["Start", "Step 1: Review Facts", "Step 2: Review Classifications", "Step 3: Review Thresholds", "Final Report"]
             current_step = st.session_state.eval_stage
             stepper_html = '<div style="display: flex; align-items: center; justify-content: center; margin: 10px 0 20px 0; gap: 0;">'
@@ -579,6 +642,9 @@ if app_option != "Select the Usecase":
                         st.error(f"⚠️ Something went wrong during fact extraction: {l1_result['error']}")
                     else:
                         st.session_state.l1_data = l1_result
+                        # Save original values for undo support
+                        st.session_state._original_firm_name = l1_result.get('firm_name', 'None')
+                        st.session_state._original_narrative_pnw = l1_result.get('narrative_pnw', 'NOT PROVIDED')
                         st.session_state.eval_stage = 1
                         st.rerun()
             
@@ -609,34 +675,86 @@ if app_option != "Select the Usecase":
                 }
                 df_facts = df_facts.rename(columns={k: v for k, v in col_rename.items() if k in df_facts.columns})
                 st.dataframe(df_facts, use_container_width=True)
+
+                st.markdown("---")
                 
-                if st.button("⬅️ Go Back to Start"):
-                    st.session_state.eval_stage = 0
-                    st.rerun()
+                l1_count = get_precedent_count(1) + len(st.session_state.staged_precedents.get("level_1_precedents", []))
+                
+                c_btn1, c_btn2 = st.columns(2)
+                with c_btn1:
+                    if st.button("⬅️ Go Back to Start"):
+                        st.session_state.eval_stage = 0
+                        st.rerun()
+                with c_btn2:
+                    if l1_count > 0 or len(st.session_state.get('analyst_overrides', [])) > 0:
+                        if st.button("↩️ Undo Last Correction & Re-evaluate"):
+                            if st.session_state.staged_precedents.get("level_1_precedents"):
+                                st.session_state.staged_precedents["level_1_precedents"].pop()
+                                with st.spinner(f"Re-running Fact Extraction..."):
+                                    l1_result = run_level_1_extraction(
+                                        st.session_state.pdf_text, firm_revenues, staged_precedents=st.session_state.staged_precedents["level_1_precedents"]
+                                    )
+                                    st.session_state.l1_data = l1_result
+                                st.rerun()
+                            elif st.session_state.get('analyst_overrides'):
+                                undone = st.session_state.analyst_overrides.pop()
+                                # Revert the actual l1_data field
+                                if undone.get('field') == 'Firm Name':
+                                    st.session_state.l1_data['firm_name'] = st.session_state.get('_original_firm_name', 'None')
+                                elif undone.get('field') == 'Narrative Declared PNW':
+                                    st.session_state.l1_data['narrative_pnw'] = st.session_state.get('_original_narrative_pnw', 'NOT PROVIDED')
+                                st.rerun()
                 
                 # Correction Form (collapsed by default)
-                l1_count = get_precedent_count(1) + len(st.session_state.staged_precedents.get("level_1_precedents", []))
-                with st.expander("✏️ Something wrong? Click here to correct a fact", expanded=False):
+                with st.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
+                    
+                    if l1_count >= 45:
+                        st.error(f"🚨 Correction limit reached ({l1_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
+                    elif l1_count >= 36:
+                        st.warning(f"⚠️ Approaching correction limit ({l1_count}/45). Corrections will be auto-merged when the limit is reached.")
+                    
+                    # Target selectors OUTSIDE form so they trigger reruns
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        fact_labels = [f"Fact {f.get('id', i+1)}" for i, f in enumerate(facts)]
+                        target_type_options = fact_labels + ["Firm Name", "Narrative Declared PNW", "Specific Incident Detail"]
+                        target_type = st.selectbox(
+                            "What to Correct", 
+                            target_type_options,
+                            help="Select which fact or metadata field needs correction."
+                        )
+                    with c2:
+                        if target_type.startswith("Fact "):
+                            field_options = ["When", "Where", "Who", "What", "Why", "Magnitude"]
+                        else:
+                            field_options = ["Not Applicable"]
+                        target_field = st.selectbox(
+                            "Which Field",
+                            field_options,
+                            help="Select the specific field within this fact to correct." if target_type.startswith("Fact ") else "No field selection needed for this target.",
+                            disabled=not target_type.startswith("Fact ")
+                        )
+                    
+                    if target_type.startswith("Fact "):
+                        target_fact = f"{target_type}: {target_field}"
+                    else:
+                        target_fact = target_type
+                    
+                    # Context-sensitive label
+                    if target_fact == "Firm Name":
+                        val_label = "Correct Firm Name"
+                    elif target_fact == "Narrative Declared PNW":
+                        val_label = "Correct PNW Amount"
+                    elif target_fact == "Specific Incident Detail":
+                        val_label = "Describe the missing or incorrect incident"
+                    else:
+                        val_label = "Corrected Value"
+                    
                     with st.form("l1_correction_form", clear_on_submit=True):
-                        st.markdown("#### Log a Fact Correction")
-                        
-                        if l1_count >= 45:
-                            st.error(f"🚨 Correction limit reached ({l1_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
-                        elif l1_count >= 36:
-                            st.warning(f"⚠️ Approaching correction limit ({l1_count}/45). Corrections will be auto-merged when the limit is reached.")
-                            
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            target_fact = st.selectbox(
-                                "Fact to Change (Context)", 
-                                ["Firm Name", "Cross-Reference Result", "Narrative Declared PNW", "Demographics Checkbox", "Specific Incident Detail"],
-                                help="Select the specific type of fact that the AI extracted incorrectly."
-                            )
-                        with c2:
-                            correction_val = st.text_input(
-                                "Corrected Value",
-                                help="Enter the exact fact that the AI should have extracted."
-                            )
+                        correction_val = st.text_input(
+                            val_label,
+                            help="Enter the exact fact that the AI should have extracted."
+                        )
                         reasoning_val = st.text_area(
                                 "Reasoning for Change (What should the AI remember?)",
                                 help="Explain why this is wrong. The AI will remember this and apply it to all future evaluations."
@@ -645,20 +763,34 @@ if app_option != "Select the Usecase":
                         # Disable submit if over threshold
                         is_disabled = True if l1_count >= 45 else False
                         if st.form_submit_button("Apply Correction & Re-Evaluate", disabled=is_disabled):
-                            st.session_state.staged_precedents["level_1_precedents"].append({
-                                "target": target_fact,
-                                "correction": correction_val,
-                                "human_reasoning": reasoning_val
-                            })
-                            # Auto re-run Level 1 with the new correction and stay on review
-                            with st.spinner(f"Re-running Fact Extraction with your correction..."):
-                                l1_result = run_level_1_extraction(
-                                    st.session_state.pdf_text,
-                                    firm_revenues,
-                                    staged_precedents=st.session_state.staged_precedents.get("level_1_precedents", [])
-                                )
-                                st.session_state.l1_data = l1_result
-                            st.rerun()
+                            if not correction_val or not correction_val.strip():
+                                st.error("Please enter a corrected value before submitting.")
+                            elif not reasoning_val or not reasoning_val.strip():
+                                st.error("Please provide reasoning so the AI can learn from your correction.")
+                            elif target_fact in ["Narrative Declared PNW", "Firm Name"]:
+                                field_key = "narrative_pnw" if target_fact == "Narrative Declared PNW" else "firm_name"
+                                st.session_state.l1_data[field_key] = correction_val
+                                st.session_state.analyst_overrides.append({
+                                    "field": target_fact,
+                                    "value": correction_val,
+                                    "reasoning": reasoning_val
+                                })
+                                st.rerun()
+                            else:
+                                st.session_state.staged_precedents["level_1_precedents"].append({
+                                    "target": target_fact,
+                                    "correction": correction_val,
+                                    "human_reasoning": reasoning_val
+                                })
+                                # Auto re-run Level 1 with the new correction and stay on review
+                                with st.spinner(f"Re-running Fact Extraction with your correction..."):
+                                    l1_result = run_level_1_extraction(
+                                        st.session_state.pdf_text,
+                                        firm_revenues,
+                                        staged_precedents=st.session_state.staged_precedents.get("level_1_precedents", [])
+                                    )
+                                    st.session_state.l1_data = l1_result
+                                st.rerun()
                 
                 st.caption("*Your corrections are saved only after you approve the final evaluation at the end.*")
                 
@@ -684,7 +816,7 @@ if app_option != "Select the Usecase":
             # STATE 2: Level 2 Classification Review
             elif st.session_state.eval_stage == 2:
                 st.markdown("### Step 2: Review Legal Classifications")
-                st.info("The AI has categorized each fact under 49 CFR §26.67 (e.g., Systemic Barrier, Economic Hardship). Review the categories below. If a fact is in the wrong category, click the correction section to fix it. Otherwise, click **Approve & Continue**.")
+                st.info("The AI has categorized each fact under [49 CFR §26.67](https://www.ecfr.gov/current/title-49/subtitle-A/part-26/subpart-D/section-26.67) (e.g., Social Disadvantage, Economic Disadvantage, Institutional/Systemic Barrier). Review the categories below. If a fact is in the wrong category, click the correction section to fix it. Otherwise, click **Approve & Continue**.")
                 st.caption("*Tip: Double-click any cell in the table below to expand it and read the full text.*")
                 
                 l2_data = st.session_state.l2_data
@@ -693,38 +825,64 @@ if app_option != "Select the Usecase":
                 # Human-readable column headers
                 l2_col_rename = {
                     'fact_id': 'Fact #', 'classification': 'Legal Category',
-                    'reasoning': 'AI Reasoning'
+                    'summary': 'Summary', 'reasoning': 'AI Reasoning'
                 }
                 df_class = df_class.rename(columns={k: v for k, v in l2_col_rename.items() if k in df_class.columns})
                 st.dataframe(df_class, use_container_width=True)
                 
-                if st.button("⬅️ Go Back to Step 1"):
-                    st.session_state.eval_stage = 1
-                    st.rerun()
-                
                 l2_count = get_precedent_count(2) + len(st.session_state.staged_precedents.get("level_2_precedents", []))
+                
+                c_btn1, c_btn2 = st.columns(2)
+                with c_btn1:
+                    if st.button("⬅️ Go Back to Step 1"):
+                        st.session_state.eval_stage = 1
+                        st.rerun()
+                with c_btn2:
+                    if l2_count > 0:
+                        if st.button("↩️ Undo Last AI Correction & Re-evaluate"):
+                            if st.session_state.staged_precedents.get("level_2_precedents"):
+                                st.session_state.staged_precedents["level_2_precedents"].pop()
+                                with st.spinner("Re-evaluating Classifications..."):
+                                    excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                    narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                    combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                    st.session_state.l2_data = run_level_2_classification(
+                                        st.session_state.l1_data.get('extracted_facts', []),
+                                        combined_financials_rerun,
+                                        staged_precedents=st.session_state.staged_precedents.get("level_2_precedents", [])
+                                    )
+                                st.rerun()
+                
                 with st.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
+                    
+                    if l2_count >= 45:
+                        st.error(f"🚨 Correction limit reached ({l2_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
+                    elif l2_count >= 36:
+                        st.warning(f"⚠️ Approaching correction limit ({l2_count}/45). Corrections will be auto-merged when the limit is reached.")
+                    
+                    # Target selectors OUTSIDE form so they trigger reruns
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        target_options = [f"Fact {c.get('fact_id', i+1)} — {c.get('classification', c.get('Legal Category', ''))}" for i, c in enumerate(classifications)]
+                        target_options += ["General Scenario Misclassification"]
+                        target_class = st.selectbox(
+                            "Fact to Correct", 
+                            target_options,
+                            help="Select the specific AI classification you want to override."
+                        )
+                    with c2:
+                        if target_class != "General Scenario Misclassification":
+                            category_options = ["Keep Current (Fix Reasoning Only)", "Social Disadvantage", "Economic Disadvantage", "Institutional/Systemic Barrier", "Ordinary Business Risk", "Insufficient Evidence"]
+                        else:
+                            category_options = ["Not Applicable — describe in reasoning below"]
+                        correction_class = st.selectbox(
+                            "New Category", 
+                            category_options,
+                            help="Select 'Keep Current' if the category is correct but the reasoning needs fixing. Otherwise pick the correct category." if target_class != "General Scenario Misclassification" else "For general guidance, describe the pattern in the reasoning field below.",
+                            disabled=target_class == "General Scenario Misclassification"
+                        )
+                    
                     with st.form("l2_correction_form", clear_on_submit=True):
-                        st.markdown("#### Override a Classification")
-                        
-                        if l2_count >= 45:
-                            st.error(f"🚨 Correction limit reached ({l2_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
-                        elif l2_count >= 36:
-                            st.warning(f"⚠️ Approaching correction limit ({l2_count}/45). Corrections will be auto-merged when the limit is reached.")
-                            
-                        c1, c2 = st.columns(2)
-                        with c1:
-                            target_class = st.selectbox(
-                                "Scenario to Reclassify", 
-                                [c.get('classification', c.get('Legal Category', '')) + ' (Change this)' for c in classifications] + ["General Scenario Misclassification"],
-                                help="Select the specific AI classification you want to override."
-                            )
-                        with c2:
-                            correction_class = st.selectbox(
-                                "New Category", 
-                                ["Systemic Barrier", "Ordinary Business Risk", "Economic Hardship", "Not a SED Barrier", "Other"],
-                                help="Select the correct legal classification for this fact."
-                            )
                         reasoning_class = st.text_area(
                                 "Legal Rationale (Why is this the correct classification?)",
                                 help="Provide your legal justification. The AI will learn this and apply it to similar cases in the future."
@@ -732,22 +890,33 @@ if app_option != "Select the Usecase":
                         
                         is_disabled = True if l2_count >= 45 else False
                         if st.form_submit_button("Apply Override & Re-Evaluate", disabled=is_disabled):
-                            st.session_state.staged_precedents["level_2_precedents"].append({
-                                "target": target_class,
-                                "correction": correction_class,
-                                "human_reasoning": reasoning_class
-                            })
-                            # Re-run with FULL financial context preserved
-                            excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
-                            narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
-                            combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
-                            with st.spinner("Re-evaluating Classifications..."):
-                                st.session_state.l2_data = run_level_2_classification(
-                                    st.session_state.l1_data.get('extracted_facts', []),
-                                    combined_financials_rerun,
-                                    staged_precedents=st.session_state.staged_precedents.get("level_2_precedents", [])
-                                )
-                            st.rerun()
+                            if not reasoning_class or not reasoning_class.strip():
+                                st.error("Please provide a legal rationale so the AI can learn from your correction.")
+                            else:
+                                # Extract fact_id from the target string for structured storage
+                                selected_idx = target_options.index(target_class) if target_class in target_options else None
+                                resolved_fact_id = classifications[selected_idx].get('fact_id', selected_idx + 1) if selected_idx is not None and selected_idx < len(classifications) else None
+                                # Resolve "Keep Current" to the actual current classification
+                                final_correction = correction_class
+                                if correction_class == "Keep Current (Fix Reasoning Only)" and selected_idx is not None and selected_idx < len(classifications):
+                                    final_correction = classifications[selected_idx].get('classification', correction_class)
+                                st.session_state.staged_precedents["level_2_precedents"].append({
+                                    "target": target_class,
+                                    "fact_id": resolved_fact_id,
+                                    "correction": final_correction,
+                                    "human_reasoning": reasoning_class
+                                })
+                                # Re-run with FULL financial context preserved
+                                excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                with st.spinner("Re-evaluating Classifications..."):
+                                    st.session_state.l2_data = run_level_2_classification(
+                                        st.session_state.l1_data.get('extracted_facts', []),
+                                        combined_financials_rerun,
+                                        staged_precedents=st.session_state.staged_precedents.get("level_2_precedents", [])
+                                    )
+                                st.rerun()
                             
                 st.caption("*Your corrections are saved only after you approve the final evaluation at the end.*")
 
@@ -773,7 +942,7 @@ if app_option != "Select the Usecase":
             # STATE 3: Level 3 Threshold Review
             elif st.session_state.eval_stage == 3:
                 st.markdown("### Step 3: Review Pass/Fail Decisions")
-                st.info("The AI has evaluated the 7 mandatory CUCP criteria and assigned Pass or Fail to each. Review the decisions below. If the AI is too strict or too lenient on any criterion, click the correction section. Otherwise, click **Approve & Finalize**.")
+                st.info("The AI has evaluated the 7 mandatory CUCP criteria under [49 CFR §26.67](https://www.ecfr.gov/current/title-49/subtitle-A/part-26/subpart-D/section-26.67) and assigned Pass or Fail to each. The standard of proof is **preponderance of evidence** (more likely true than not, >50%). Review the decisions below. If the AI is too strict or too lenient on any criterion, click the correction section. Otherwise, click **Approve & Finalize**.")
                 st.caption("*Tip: Double-click any cell in the table below to expand it and read the full text.*")
                 
                 l3_data = st.session_state.l3_data
@@ -788,36 +957,89 @@ if app_option != "Select the Usecase":
                     'confidence': 'Confidence'
                 }
                 df_crit = df_crit.rename(columns={k: v for k, v in l3_col_rename.items() if k in df_crit.columns})
+                
+                # Change 5: Round confidence to 1 decimal (safe for non-numeric)
+                if 'Confidence' in df_crit.columns:
+                    def _safe_round(x):
+                        try:
+                            return round(float(x), 1)
+                        except (ValueError, TypeError):
+                            return x
+                    df_crit['Confidence'] = df_crit['Confidence'].apply(_safe_round)
+                
                 cols_to_show = ['Category', 'Criterion', 'Evidence Summary', 'AI Reasoning', 'Pass/Fail', 'Need More Info?', 'Confidence']
                 existing_cols = [c for c in cols_to_show if c in df_crit.columns]
-                st.dataframe(df_crit[existing_cols], use_container_width=True)
                 
-                if st.button("⬅️ Go Back to Step 2"):
-                    st.session_state.eval_stage = 2
-                    st.rerun()
-                
-                st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
+                # UX-2: Font-only visual highlighting (minimal, clean)
+                def _styler_pass_fail(val):
+                    if str(val).lower() == 'pass': return 'color: #22c55e; font-weight: bold;'
+                    elif str(val).lower() == 'fail': return 'color: #ef4444; font-weight: bold;'
+                    return ''
+                def _styler_confidence(val):
+                    try:
+                        v = float(val)
+                        if v >= 8.0: return 'color: #22c55e; font-weight: bold;'
+                        elif v >= 5.0: return 'color: #f59e0b; font-weight: bold;'
+                        else: return 'color: #ef4444; font-weight: bold;'
+                    except: return ''
+                    
+                if existing_cols and 'Pass/Fail' in existing_cols and 'Confidence' in existing_cols:
+                    styled_df = df_crit[existing_cols].style.map(_styler_pass_fail, subset=['Pass/Fail']).map(_styler_confidence, subset=['Confidence'])
+                    st.dataframe(styled_df, use_container_width=True)
+                elif existing_cols:
+                    st.dataframe(df_crit[existing_cols], use_container_width=True)
+                else:
+                    st.warning("The AI returned no evaluation criteria. Please go back and try again.")
                 
                 l3_count = get_precedent_count(3) + len(st.session_state.staged_precedents.get("level_3_precedents", []))
+                
+                c_btn1, c_btn2 = st.columns(2)
+                with c_btn1:
+                    if st.button("⬅️ Go Back to Step 2"):
+                        st.session_state.eval_stage = 2
+                        st.rerun()
+                with c_btn2:
+                    if l3_count > 0:
+                        if st.button("↩️ Undo Last AI Correction & Re-evaluate"):
+                            if st.session_state.staged_precedents.get("level_3_precedents"):
+                                st.session_state.staged_precedents["level_3_precedents"].pop()
+                                with st.spinner("Re-evaluating decisions..."):
+                                    excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                    narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                    combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                    st.session_state.l3_data = run_level_3_thresholds(
+                                        st.session_state.l2_data.get("classifications", []), 
+                                        st.session_state.l1_data.get("extracted_facts", []), 
+                                        combined_financials_rerun,
+                                        staged_precedents=st.session_state.staged_precedents.get("level_3_precedents", [])
+                                    )
+                                st.rerun()
+                
+                st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
                 with st.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
+                    
+                    if l3_count >= 45:
+                        st.error(f"🚨 Correction limit reached ({l3_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
+                    elif l3_count >= 36:
+                        st.warning(f"⚠️ Approaching correction limit ({l3_count}/45). Corrections will be auto-merged when the limit is reached.")
+                    
+                    # Target selectors OUTSIDE form so they trigger reruns
+                    target_crit = st.selectbox(
+                        "Criterion or Decision to Adjust", 
+                        [f"{c.get('category', c.get('Category', ''))} — {c.get('qualification', c.get('Criterion', ''))}" for c in criteria] + ["Final Decision"],
+                        help="Select the specific criterion where the AI was too strict or too lenient. Each criterion corresponds to a mandatory eligibility requirement under 49 CFR §26.67 for Social and Economic Disadvantage (SED) determinations."
+                    )
+                    if target_crit == "Final Decision":
+                        result_options = ["Pass", "Fail"]
+                    else:
+                        result_options = ["Keep Current (Fix Reasoning Only)", "Pass", "Fail", "Request Additional Information"]
+                    correction_crit = st.selectbox(
+                        "New Result", 
+                        result_options,
+                        help="For Final Decision, only Pass or Fail applies. For individual criteria, select 'Keep Current' to fix only the reasoning." if target_crit == "Final Decision" else "Select 'Keep Current' if the decision is correct but the reasoning needs fixing."
+                    )
+                    
                     with st.form("l3_correction_form", clear_on_submit=True):
-                        st.markdown("#### Override a Pass/Fail Decision")
-                        
-                        if l3_count >= 45:
-                            st.error(f"🚨 Correction limit reached ({l3_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
-                        elif l3_count >= 36:
-                            st.warning(f"⚠️ Approaching correction limit ({l3_count}/45). Corrections will be auto-merged when the limit is reached.")
-                            
-                        target_crit = st.selectbox(
-                            "Criterion or Decision to Adjust", 
-                            [c.get('qualification', c.get('Criterion', '')) for c in criteria] + ["Final Decision"],
-                            help="Select the specific criterion where the AI was too strict or too lenient."
-                        )
-                        correction_crit = st.selectbox(
-                            "New Result", 
-                            ["Pass", "Fail", "Request Additional Information"],
-                            help="Select what the correct decision should be."
-                        )
                         reasoning_crit = st.text_area(
                             "Why is this the correct decision?",
                             help="Explain your reasoning. The AI will remember this standard and apply it consistently in future reviews."
@@ -825,23 +1047,33 @@ if app_option != "Select the Usecase":
                         
                         is_disabled = True if l3_count >= 45 else False
                         if st.form_submit_button("Apply Correction & Re-Evaluate", disabled=is_disabled):
-                            st.session_state.staged_precedents["level_3_precedents"].append({
-                                "target": target_crit,
-                                "correction": correction_crit,
-                                "human_reasoning": reasoning_crit
-                            })
-                            # Re-run with FULL combined financial context (narrative PNW override preserved)
-                            excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
-                            narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
-                            combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
-                            with st.spinner("Re-evaluating decisions..."):
-                                st.session_state.l3_data = run_level_3_thresholds(
-                                    st.session_state.l2_data.get("classifications", []), 
-                                    st.session_state.l1_data.get("extracted_facts", []), 
-                                    combined_financials_rerun,
-                                    staged_precedents=st.session_state.staged_precedents.get("level_3_precedents", [])
-                                )
-                            st.rerun()
+                            if not reasoning_crit or not reasoning_crit.strip():
+                                st.error("Please explain your reasoning so the AI can learn from your correction.")
+                            else:
+                                # Resolve "Keep Current" to the actual current decision
+                                final_correction = correction_crit
+                                if correction_crit == "Keep Current (Fix Reasoning Only)":
+                                    crit_options = [f"{c.get('category', c.get('Category', ''))} — {c.get('qualification', c.get('Criterion', ''))}" for c in criteria]
+                                    if target_crit in crit_options:
+                                        selected_crit_idx = crit_options.index(target_crit)
+                                        final_correction = criteria[selected_crit_idx].get('pass_fail', correction_crit)
+                                st.session_state.staged_precedents["level_3_precedents"].append({
+                                    "target": target_crit,
+                                    "correction": final_correction,
+                                    "human_reasoning": reasoning_crit
+                                })
+                                # Re-run with FULL combined financial context (narrative PNW override preserved)
+                                excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                with st.spinner("Re-evaluating decisions..."):
+                                    st.session_state.l3_data = run_level_3_thresholds(
+                                        st.session_state.l2_data.get("classifications", []), 
+                                        st.session_state.l1_data.get("extracted_facts", []), 
+                                        combined_financials_rerun,
+                                        staged_precedents=st.session_state.staged_precedents.get("level_3_precedents", [])
+                                    )
+                                st.rerun()
                             
                 st.caption("*Your corrections are saved only after you approve the final evaluation below.*")
 
@@ -855,7 +1087,12 @@ if app_option != "Select the Usecase":
             elif st.session_state.eval_stage == 4:
                 st.success(f"✅ Full Process-Supervised Evaluation completed for **{file_name}**")
                 
-                result_md = generate_final_md_report(st.session_state.l1_data, st.session_state.l3_data)
+                result_md = generate_final_md_report(
+                    st.session_state.l1_data, 
+                    st.session_state.l2_data, 
+                    st.session_state.l3_data, 
+                    st.session_state.get('analyst_overrides', [])
+                )
                 
                 # Display Results
                 st.markdown("---")
@@ -868,7 +1105,7 @@ if app_option != "Select the Usecase":
                         st.rerun()
                 with colB:
                     if st.button("🔄 Reset / Start Over"):
-                        for key in ['eval_stage', 'pdf_text', 'l1_data', 'l2_data', 'l3_data', 'staged_precedents', 'consolidated_rules_json', 'show_consolidation_success']:
+                        for key in ['eval_stage', 'pdf_text', 'l1_data', 'l2_data', 'l3_data', 'staged_precedents', 'analyst_overrides', 'consolidated_rules_json', 'show_consolidation_success', 'current_file_name', '_auto_consolidated', '_original_firm_name', '_original_narrative_pnw']:
                             if key in st.session_state:
                                 del st.session_state[key]
                         st.rerun()
@@ -958,6 +1195,38 @@ if app_option != "Select the Usecase":
                             ws_comments.column_dimensions['A'].width = 100
                             approx_lines = (len(comments_text) // 100) + comments_text.count("\n") + 2
                             ws_comments.row_dimensions[3].height = max(15, approx_lines * 15)
+
+                    # Change 12: Extract Analyst Overrides & Classification Summary bullet lists
+                    overrides_match = re.search(r'### 🧑‍⚖️ ANALYST OVERRIDES\s*(.*?)(?=###|---|\Z)', md_text, re.DOTALL)
+                    class_match = re.search(r'### 🏷️ CLASSIFICATION SUMMARY\s*(.*?)(?=###|---|\Z)', md_text, re.DOTALL)
+                    if overrides_match or class_match:
+                        ws_extra = wb.create_sheet(title="Overrides & Classifications")
+                        ws_extra.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
+                        title_cell = ws_extra.cell(row=1, column=1, value="Analyst Overrides & Classification Summary")
+                        title_cell.font = Font(bold=True, size=13, color="1F4E79")
+                        title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                        ws_extra.row_dimensions[1].height = 22
+                        current_row = 3
+                        if overrides_match:
+                            ws_extra.cell(row=current_row, column=1, value="Analyst Overrides").font = Font(bold=True, size=11, color="1F4E79")
+                            current_row += 1
+                            for line in overrides_match.group(1).strip().split("\n"):
+                                line = line.strip().lstrip("- ")
+                                if line:
+                                    ws_extra.cell(row=current_row, column=1, value=re.sub(r'\*+', '', line))
+                                    ws_extra.row_dimensions[current_row].height = 18
+                                    current_row += 1
+                            current_row += 1
+                        if class_match:
+                            ws_extra.cell(row=current_row, column=1, value="Classification Summary").font = Font(bold=True, size=11, color="1F4E79")
+                            current_row += 1
+                            for line in class_match.group(1).strip().split("\n"):
+                                line = line.strip().lstrip("- ")
+                                if line:
+                                    ws_extra.cell(row=current_row, column=1, value=re.sub(r'\*+', '', line))
+                                    ws_extra.row_dimensions[current_row].height = 18
+                                    current_row += 1
+                        ws_extra.column_dimensions['A'].width = 80
 
                     buf = BytesIO()
                     wb.save(buf)
