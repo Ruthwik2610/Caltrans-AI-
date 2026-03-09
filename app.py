@@ -577,21 +577,51 @@ if app_option != "Select the Usecase":
             from src.cucp_reevals import run_level_1_extraction, run_level_2_classification, run_level_3_thresholds, generate_final_md_report
             from src.memory_manager import add_precedent
             
-            # --- Thicker border on correction/feedback expanders + evaluation container ---
+            # --- UI Styling: borders, buttons ---
             st.markdown("""
             <style>
-            /* Slightly thicker border on correction/feedback expanders */
+            /* Thicker border on correction/feedback expanders */
             details[data-testid="stExpander"] {
                 border: 2px solid rgba(59,130,246,0.25) !important;
                 border-radius: 12px !important;
             }
-            /* Rounded border around evaluation container (the vertical block that holds the marker) */
+            /* Rounded border around evaluation container */
             div[data-testid="stVerticalBlock"]:has(> div.eval-border-marker) {
                 border: 1.5px solid rgba(148,163,184,0.3);
                 border-radius: 16px;
                 padding: 24px 20px 20px 20px;
             }
             .eval-border-marker { display: none; }
+            
+            /* Modern button styling */
+            div.stButton > button {
+                border-radius: 10px !important;
+                font-weight: 600 !important;
+                padding: 0.5rem 1.2rem !important;
+                transition: all 0.2s ease !important;
+                border: 1.5px solid transparent !important;
+            }
+            /* Primary buttons (Approve, Start) */
+            div.stButton > button[kind="primary"] {
+                background: #3b82f6 !important;
+                color: white !important;
+                border-color: #3b82f6 !important;
+            }
+            div.stButton > button[kind="primary"]:hover {
+                background: #2563eb !important;
+                border-color: #2563eb !important;
+                box-shadow: 0 4px 14px rgba(59,130,246,0.35) !important;
+            }
+            /* Secondary buttons (Go Back, etc.) */
+            div.stButton > button[kind="secondary"] {
+                background: #f1f5f9 !important;
+                color: #475569 !important;
+                border-color: #e2e8f0 !important;
+            }
+            div.stButton > button[kind="secondary"]:hover {
+                background: #e2e8f0 !important;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+            }
             </style>
             """, unsafe_allow_html=True)
             
@@ -680,33 +710,45 @@ if app_option != "Select the Usecase":
                 
                 l1_count = get_precedent_count(1) + len(st.session_state.staged_precedents.get("level_1_precedents", []))
                 
-                c_btn1, c_btn2 = st.columns(2)
-                with c_btn1:
-                    if st.button("⬅️ Go Back to Start"):
-                        st.session_state.eval_stage = 0
-                        st.rerun()
-                with c_btn2:
-                    if l1_count > 0 or len(st.session_state.get('analyst_overrides', [])) > 0:
-                        if st.button("↩️ Undo Last Correction & Re-evaluate"):
-                            if st.session_state.staged_precedents.get("level_1_precedents"):
-                                st.session_state.staged_precedents["level_1_precedents"].pop()
-                                with st.spinner(f"Re-running Fact Extraction..."):
-                                    l1_result = run_level_1_extraction(
-                                        st.session_state.pdf_text, firm_revenues, staged_precedents=st.session_state.staged_precedents["level_1_precedents"]
-                                    )
-                                    st.session_state.l1_data = l1_result
-                                st.rerun()
-                            elif st.session_state.get('analyst_overrides'):
-                                undone = st.session_state.analyst_overrides.pop()
-                                # Revert the actual l1_data field
-                                if undone.get('field') == 'Firm Name':
-                                    st.session_state.l1_data['firm_name'] = st.session_state.get('_original_firm_name', 'None')
-                                elif undone.get('field') == 'Narrative Declared PNW':
-                                    st.session_state.l1_data['narrative_pnw'] = st.session_state.get('_original_narrative_pnw', 'NOT PROVIDED')
-                                st.rerun()
+                if st.button("⬅️ Go Back to Start"):
+                    st.session_state.eval_stage = 0
+                    st.rerun()
                 
                 # Correction Form (collapsed by default)
                 with st.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
+                    
+                    # Undo + Clear buttons at top of expander
+                    if l1_count > 0 or len(st.session_state.get('analyst_overrides', [])) > 0:
+                        uc1, uc2 = st.columns(2)
+                        with uc1:
+                            if st.button("↩️ Undo Last Correction", key="l1_undo"):
+                                if st.session_state.staged_precedents.get("level_1_precedents"):
+                                    st.session_state.staged_precedents["level_1_precedents"].pop()
+                                    with st.spinner("Re-running Fact Extraction..."):
+                                        l1_result = run_level_1_extraction(
+                                            st.session_state.pdf_text, firm_revenues, staged_precedents=st.session_state.staged_precedents["level_1_precedents"]
+                                        )
+                                        st.session_state.l1_data = l1_result
+                                    st.rerun()
+                                elif st.session_state.get('analyst_overrides'):
+                                    undone = st.session_state.analyst_overrides.pop()
+                                    if undone.get('field') == 'Firm Name':
+                                        st.session_state.l1_data['firm_name'] = st.session_state.get('_original_firm_name', 'None')
+                                    elif undone.get('field') == 'Narrative Declared PNW':
+                                        st.session_state.l1_data['narrative_pnw'] = st.session_state.get('_original_narrative_pnw', 'NOT PROVIDED')
+                                    st.rerun()
+                        with uc2:
+                            if st.button("🗑️ Clear All Step Corrections", key="l1_clear"):
+                                st.session_state.staged_precedents["level_1_precedents"] = []
+                                st.session_state.analyst_overrides = []
+                                st.session_state.l1_data['firm_name'] = st.session_state.get('_original_firm_name', 'None')
+                                st.session_state.l1_data['narrative_pnw'] = st.session_state.get('_original_narrative_pnw', 'NOT PROVIDED')
+                                with st.spinner("Re-running Fact Extraction from scratch..."):
+                                    l1_result = run_level_1_extraction(
+                                        st.session_state.pdf_text, firm_revenues, staged_precedents=[]
+                                    )
+                                    st.session_state.l1_data = l1_result
+                                st.rerun()
                     
                     if l1_count >= 45:
                         st.error(f"🚨 Correction limit reached ({l1_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
@@ -832,28 +874,42 @@ if app_option != "Select the Usecase":
                 
                 l2_count = get_precedent_count(2) + len(st.session_state.staged_precedents.get("level_2_precedents", []))
                 
-                c_btn1, c_btn2 = st.columns(2)
-                with c_btn1:
-                    if st.button("⬅️ Go Back to Step 1"):
-                        st.session_state.eval_stage = 1
-                        st.rerun()
-                with c_btn2:
+                if st.button("⬅️ Go Back to Step 1"):
+                    st.session_state.eval_stage = 1
+                    st.rerun()
+                
+                with st.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
+                    
+                    # Undo + Clear buttons at top of expander
                     if l2_count > 0:
-                        if st.button("↩️ Undo Last AI Correction & Re-evaluate"):
-                            if st.session_state.staged_precedents.get("level_2_precedents"):
-                                st.session_state.staged_precedents["level_2_precedents"].pop()
-                                with st.spinner("Re-evaluating Classifications..."):
+                        uc1, uc2 = st.columns(2)
+                        with uc1:
+                            if st.button("↩️ Undo Last Correction", key="l2_undo"):
+                                if st.session_state.staged_precedents.get("level_2_precedents"):
+                                    st.session_state.staged_precedents["level_2_precedents"].pop()
+                                    with st.spinner("Re-evaluating Classifications..."):
+                                        excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                        narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                        combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                        st.session_state.l2_data = run_level_2_classification(
+                                            st.session_state.l1_data.get('extracted_facts', []),
+                                            combined_financials_rerun,
+                                            staged_precedents=st.session_state.staged_precedents.get("level_2_precedents", [])
+                                        )
+                                    st.rerun()
+                        with uc2:
+                            if st.button("🗑️ Clear All Step Corrections", key="l2_clear"):
+                                st.session_state.staged_precedents["level_2_precedents"] = []
+                                with st.spinner("Re-evaluating Classifications from scratch..."):
                                     excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
                                     narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
                                     combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
                                     st.session_state.l2_data = run_level_2_classification(
                                         st.session_state.l1_data.get('extracted_facts', []),
                                         combined_financials_rerun,
-                                        staged_precedents=st.session_state.staged_precedents.get("level_2_precedents", [])
+                                        staged_precedents=[]
                                     )
                                 st.rerun()
-                
-                with st.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
                     
                     if l2_count >= 45:
                         st.error(f"🚨 Correction limit reached ({l2_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
@@ -993,17 +1049,35 @@ if app_option != "Select the Usecase":
                 
                 l3_count = get_precedent_count(3) + len(st.session_state.staged_precedents.get("level_3_precedents", []))
                 
-                c_btn1, c_btn2 = st.columns(2)
-                with c_btn1:
-                    if st.button("⬅️ Go Back to Step 2"):
-                        st.session_state.eval_stage = 2
-                        st.rerun()
-                with c_btn2:
+                if st.button("⬅️ Go Back to Step 2"):
+                    st.session_state.eval_stage = 2
+                    st.rerun()
+                
+                st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
+                with st.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
+                    
+                    # Undo + Clear buttons at top of expander
                     if l3_count > 0:
-                        if st.button("↩️ Undo Last AI Correction & Re-evaluate"):
-                            if st.session_state.staged_precedents.get("level_3_precedents"):
-                                st.session_state.staged_precedents["level_3_precedents"].pop()
-                                with st.spinner("Re-evaluating decisions..."):
+                        uc1, uc2 = st.columns(2)
+                        with uc1:
+                            if st.button("↩️ Undo Last Correction", key="l3_undo"):
+                                if st.session_state.staged_precedents.get("level_3_precedents"):
+                                    st.session_state.staged_precedents["level_3_precedents"].pop()
+                                    with st.spinner("Re-evaluating decisions..."):
+                                        excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
+                                        narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
+                                        combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
+                                        st.session_state.l3_data = run_level_3_thresholds(
+                                            st.session_state.l2_data.get("classifications", []), 
+                                            st.session_state.l1_data.get("extracted_facts", []), 
+                                            combined_financials_rerun,
+                                            staged_precedents=st.session_state.staged_precedents.get("level_3_precedents", [])
+                                        )
+                                    st.rerun()
+                        with uc2:
+                            if st.button("🗑️ Clear All Step Corrections", key="l3_clear"):
+                                st.session_state.staged_precedents["level_3_precedents"] = []
+                                with st.spinner("Re-evaluating decisions from scratch..."):
                                     excel_pnw_rerun = st.session_state.l1_data.get("cross_reference_result", "None")
                                     narrative_pnw_rerun = st.session_state.l1_data.get("narrative_pnw", "NOT PROVIDED")
                                     combined_financials_rerun = f"Excel Cross-Reference Revenue/PNW: {excel_pnw_rerun}\nNarrative Declared PNW: {narrative_pnw_rerun}"
@@ -1011,12 +1085,9 @@ if app_option != "Select the Usecase":
                                         st.session_state.l2_data.get("classifications", []), 
                                         st.session_state.l1_data.get("extracted_facts", []), 
                                         combined_financials_rerun,
-                                        staged_precedents=st.session_state.staged_precedents.get("level_3_precedents", [])
+                                        staged_precedents=[]
                                     )
                                 st.rerun()
-                
-                st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
-                with st.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
                     
                     if l3_count >= 45:
                         st.error(f"🚨 Correction limit reached ({l3_count}/45). Your corrections will be auto-merged. Check the sidebar to download the rulebook.")
