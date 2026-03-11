@@ -715,7 +715,9 @@ if app_option != "Select the Usecase":
                     st.rerun()
                 
                 # Correction Form (collapsed by default)
-                with st.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
+                l1_feedback_container = st.container(border=True)
+                l1_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
+                with l1_feedback_container.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l1_count > 0 or len(st.session_state.get('analyst_overrides', [])) > 0:
@@ -878,7 +880,9 @@ if app_option != "Select the Usecase":
                     st.session_state.eval_stage = 1
                     st.rerun()
                 
-                with st.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
+                l2_feedback_container = st.container(border=True)
+                l2_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
+                with l2_feedback_container.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l2_count > 0:
@@ -1054,7 +1058,9 @@ if app_option != "Select the Usecase":
                     st.rerun()
                 
                 st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
-                with st.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
+                l3_feedback_container = st.container(border=True)
+                l3_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
+                with l3_feedback_container.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l3_count > 0:
