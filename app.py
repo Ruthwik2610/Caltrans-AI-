@@ -627,24 +627,26 @@ if app_option != "Select the Usecase":
             
             # --- Progress Stepper ---
             st.markdown('<div class="eval-border-marker"></div>', unsafe_allow_html=True)
-            step_labels = ["Start", "Step 1: Review Facts", "Step 2: Review Classifications", "Step 3: Review Thresholds", "Final Report"]
-            current_step = st.session_state.eval_stage
-            stepper_html = '<div style="display: flex; align-items: center; justify-content: center; margin: 10px 0 20px 0; gap: 0;">'
-            for i, label in enumerate(step_labels):
-                if i < current_step:
-                    color = "#22c55e"; bg = "rgba(34,197,94,0.15)"; border_c = "#22c55e"; icon = "✓"
-                elif i == current_step:
-                    color = "#3b82f6"; bg = "rgba(59,130,246,0.15)"; border_c = "#3b82f6"; icon = str(i)
-                else:
-                    color = "#94a3b8"; bg = "rgba(148,163,184,0.08)"; border_c = "#cbd5e1"; icon = str(i)
-                stepper_html += f'<div style="display:flex; flex-direction:column; align-items:center; min-width:80px;">'
-                stepper_html += f'<div style="width:36px; height:36px; border-radius:50%; background:{bg}; border:2px solid {border_c}; display:flex; align-items:center; justify-content:center; font-size:0.85rem; font-weight:700; color:{color};">{icon}</div>'
-                stepper_html += f'<p style="margin:4px 0 0 0; font-size:0.82rem; color:{color}; text-align:center; line-height:1.3;">{label}</p></div>'
-                if i < len(step_labels) - 1:
-                    line_color = "#22c55e" if i < current_step else "#cbd5e1"
-                    stepper_html += f'<div style="flex:1; height:3px; background:{line_color}; margin:0 4px; margin-bottom:22px;"></div>'
-            stepper_html += '</div>'
-            st.markdown(stepper_html, unsafe_allow_html=True)
+            with st.container(border=True):
+                st.markdown("<h4 style='text-align: center; margin-bottom: 0px; color: #1e293b; font-weight: 600;'>🧑‍🏫 Human in the Feedback Loop</h4>", unsafe_allow_html=True)
+                step_labels = ["Start", "Step 1: Review Facts", "Step 2: Review Classifications", "Step 3: Review Thresholds", "Final Report"]
+                current_step = st.session_state.eval_stage
+                stepper_html = '<div style="display: flex; align-items: center; justify-content: center; margin: 10px 0 10px 0; gap: 0;">'
+                for i, label in enumerate(step_labels):
+                    if i < current_step:
+                        color = "#22c55e"; bg = "rgba(34,197,94,0.15)"; border_c = "#22c55e"; icon = "✓"
+                    elif i == current_step:
+                        color = "#3b82f6"; bg = "rgba(59,130,246,0.15)"; border_c = "#3b82f6"; icon = str(i)
+                    else:
+                        color = "#94a3b8"; bg = "rgba(148,163,184,0.08)"; border_c = "#cbd5e1"; icon = str(i)
+                    stepper_html += f'<div style="display:flex; flex-direction:column; align-items:center; min-width:80px;">'
+                    stepper_html += f'<div style="width:36px; height:36px; border-radius:50%; background:{bg}; border:2px solid {border_c}; display:flex; align-items:center; justify-content:center; font-size:0.85rem; font-weight:700; color:{color};">{icon}</div>'
+                    stepper_html += f'<p style="margin:4px 0 0 0; font-size:0.82rem; color:{color}; text-align:center; line-height:1.3;">{label}</p></div>'
+                    if i < len(step_labels) - 1:
+                        line_color = "#22c55e" if i < current_step else "#cbd5e1"
+                        stepper_html += f'<div style="flex:1; height:3px; background:{line_color}; margin:0 4px; margin-bottom:22px;"></div>'
+                stepper_html += '</div>'
+                st.markdown(stepper_html, unsafe_allow_html=True)
             
             # STATE 0: Upload & Process Level 1
             if st.session_state.eval_stage == 0:
@@ -715,9 +717,7 @@ if app_option != "Select the Usecase":
                     st.rerun()
                 
                 # Correction Form (collapsed by default)
-                l1_feedback_container = st.container(border=True)
-                l1_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
-                with l1_feedback_container.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
+                with st.expander("✏️ Structural issue? Click here to correct via AI re-run", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l1_count > 0 or len(st.session_state.get('analyst_overrides', [])) > 0:
@@ -880,9 +880,7 @@ if app_option != "Select the Usecase":
                     st.session_state.eval_stage = 1
                     st.rerun()
                 
-                l2_feedback_container = st.container(border=True)
-                l2_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
-                with l2_feedback_container.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
+                with st.expander("✏️ Wrong category? Click here to reclassify a fact", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l2_count > 0:
@@ -1058,9 +1056,7 @@ if app_option != "Select the Usecase":
                     st.rerun()
                 
                 st.write(f"**Final Evaluated Decision:** {l3_data.get('final_decision')}")
-                l3_feedback_container = st.container(border=True)
-                l3_feedback_container.markdown("#### 🧑‍🏫 Human in the Feedback Loop")
-                with l3_feedback_container.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
+                with st.expander("✏️ Disagree with a decision? Click here to adjust", expanded=False):
                     
                     # Undo + Clear buttons at top of expander
                     if l3_count > 0:
