@@ -15,6 +15,14 @@ from src.chat_ui import text_based
 from src.cucp_reevals import cucp_reevaluations
 from src.foundation_model_chat import foundation_model_chat_ui
 from src.highway_incident_summarizer import summarize_caltrans_incidents
+from src.project_delivery_evaluator import (
+    extract_text_from_docx as pde_extract_docx,
+    extract_text_from_uploaded_pdf as pde_extract_pdf,
+    load_delivery_method_kb,
+    run_delivery_evaluation,
+    compute_delivery_recommendation,
+    build_evaluation_excel,
+)
 
 
 def are_all_selected(options_list, selected_fields):
@@ -136,6 +144,7 @@ if vAR_AI_application == "Caltrans":
                 "Prompt Engineering",
                 "RAG-Document Intelligence",
                 "Personal Narrative Insights",
+                "Project Delivery Evaluator",
             ),
             key="app_select",
         )
@@ -1357,6 +1366,238 @@ if app_option != "Select the Usecase":
 
     elif app_option == "Highway Incident Summarizer":
         highway_incident_ui(app_option)
+
+    elif app_option == "Project Delivery Evaluator":
+        with col22:
+            st.subheader("Upload Nomination Fact Sheet")
+        with col24:
+            delivery_file = st.file_uploader(
+                "Upload Completed Alt Delivery Nomination Fact Sheet",
+                type=["docx", "pdf"],
+                key="delivery_upload",
+            )
+
+        with col71:
+            st.write("")
+        with col72:
+            if not delivery_file:
+                st.markdown("""
+                <div style="
+                    background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%);
+                    border: 1px solid #bcd4f0;
+                    border-radius: 12px;
+                    padding: 24px 28px;
+                    margin: 20px 0;
+                ">
+                    <h3 style="margin: 0 0 12px 0; color: #1a3d6e;">Project Delivery Method Evaluator</h3>
+                    <p style="color: #334155; margin: 0 0 12px 0;">
+                        This tool evaluates a completed Alternative Delivery Nomination Fact Sheet against the
+                        25-question delivery selection rubric (Sections A through F) and recommends the most
+                        appropriate project delivery method.
+                    </p>
+                    <ol style="color: #475569; margin: 0; padding-left: 20px;">
+                        <li><strong>Upload</strong> a completed Nomination Fact Sheet (.docx or .pdf) with project narratives filled in.</li>
+                        <li><strong>Run Evaluation</strong> to have the AI assess all 25 rubric questions based on the narrative content.</li>
+                        <li><strong>Review</strong> the A/B/C ratings, evidence extracted, and confidence scores.</li>
+                        <li><strong>Download</strong> the results as an Excel report.</li>
+                    </ol>
+                    <p style="color: #64748b; margin: 12px 0 0 0; font-size: 0.85rem;">
+                        <strong>6 Delivery Methods:</strong> Design-Bid-Build, Design-Sequencing, Design-Build/Low-Bid,
+                        Design-Build/Best-Value, CM/GC, Progressive Design-Build
+                    </p>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # Extract text based on file type
+                file_name = delivery_file.name
+                if "pde_current_file" not in st.session_state or st.session_state.pde_current_file != file_name:
+                    # New file uploaded — reset state
+                    for key in [k for k in list(st.session_state.keys()) if k.startswith("pde_")]:
+                        del st.session_state[key]
+                    st.session_state.pde_current_file = file_name
+
+                    if file_name.endswith(".docx"):
+                        narrative_text, existing_ratings = pde_extract_docx(delivery_file)
+                        st.session_state.pde_narrative = narrative_text
+                        st.session_state.pde_existing_ratings = existing_ratings
+                    else:
+                        st.session_state.pde_narrative = pde_extract_pdf(delivery_file)
+                        st.session_state.pde_existing_ratings = {}
+
+                narrative_text = st.session_state.get("pde_narrative", "")
+                existing_ratings = st.session_state.get("pde_existing_ratings", {})
+
+                # Show extracted info summary
+                word_count = len(narrative_text.split())
+                st.info(f"Extracted {word_count} words from **{file_name}**. "
+                        + (f"Found {len(existing_ratings)} pre-filled district ratings." if existing_ratings else "No pre-filled ratings detected."))
+
+                # Load knowledge base (cached)
+                if "pde_kb_text" not in st.session_state:
+                    with st.spinner("Loading delivery method knowledge base..."):
+                        st.session_state.pde_kb_text = load_delivery_method_kb()
+
+                # Run evaluation button
+                if "pde_eval_result" not in st.session_state:
+                    if st.button("Run Evaluation", type="primary", key="pde_run"):
+                        with st.spinner("Evaluating 25 rubric questions with GPT-4o... This may take 30-60 seconds."):
+                            eval_result = run_delivery_evaluation(
+                                narrative_text,
+                                st.session_state.pde_kb_text,
+                                existing_ratings if existing_ratings else None,
+                            )
+                        if "error" in eval_result:
+                            st.error(f"Evaluation failed: {eval_result['error']}")
+                        else:
+                            st.session_state.pde_eval_result = eval_result
+                            st.session_state.pde_recommendation = compute_delivery_recommendation(
+                                eval_result.get("ratings", [])
+                            )
+                            st.rerun()
+
+                # Display results
+                if "pde_eval_result" in st.session_state:
+                    import pandas as pd
+                    eval_result = st.session_state.pde_eval_result
+                    recommendation = st.session_state.pde_recommendation
+                    ratings = eval_result.get("ratings", [])
+                    missing = eval_result.get("missing_questions", [])
+                    project_name = eval_result.get("project_name", file_name.rsplit(".", 1)[0])
+
+                    # --- Recommendation Banner ---
+                    rec_method = recommendation.get("recommended_method", "N/A")
+                    comp_score = recommendation.get("composite_score", 0)
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #1F4E79 0%, #2563eb 100%);
+                         border-radius: 12px; padding: 20px 28px; margin: 10px 0 20px 0;">
+                        <p style="color: rgba(255,255,255,0.7); margin: 0 0 4px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
+                            Recommended Delivery Method</p>
+                        <p style="color: white; margin: 0; font-size: 1.6rem; font-weight: 700;">
+                            {rec_method}</p>
+                        <p style="color: rgba(255,255,255,0.6); margin: 6px 0 0 0; font-size: 0.85rem;">
+                            Composite Score: {comp_score:.2f} / 3.00 &nbsp;|&nbsp; Runner-up: {recommendation.get('runner_up_method', 'N/A')}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # --- Borderline Warning ---
+                    if recommendation.get("is_borderline"):
+                        st.warning(f"This is a borderline case between **{rec_method}** and **{recommendation.get('runner_up_method')}**. Review the qualitative comparison below.")
+                        with st.expander("View Qualitative Comparison"):
+                            st.markdown(recommendation.get("comparison_text", ""))
+
+                    # --- Missing Info Warning ---
+                    if missing:
+                        st.warning(
+                            f"**{len(missing)} of 25 questions** had insufficient evidence in the narrative: "
+                            f"{', '.join(missing)}. Ratings for these were estimated using domain knowledge. "
+                            f"Consider requesting additional project information from the district."
+                        )
+
+                    # --- Section Score Breakdown ---
+                    with st.expander("Section Score Breakdown", expanded=True):
+                        section_names = {
+                            "A": "Project Scope & Characteristics",
+                            "B": "Schedule Issues",
+                            "C": "Opportunity for Innovation",
+                            "D": "Quality Enhancement",
+                            "E": "Cost Issues",
+                            "F": "Staffing Issues",
+                        }
+                        from src.project_delivery_evaluator import SECTION_WEIGHTS
+                        sec_data = []
+                        for sec, name in section_names.items():
+                            avg = recommendation.get("section_scores", {}).get(sec, 2.0)
+                            weight = SECTION_WEIGHTS[sec]
+                            sec_data.append({
+                                "Section": f"{sec}: {name}",
+                                "Avg Score": f"{avg:.2f}",
+                                "Weight": f"{weight:.0%}",
+                                "Weighted": f"{avg * weight:.3f}",
+                            })
+                        st.dataframe(pd.DataFrame(sec_data), use_container_width=True, hide_index=True)
+
+                    # --- Ratings Dataframe ---
+                    st.subheader("Detailed Question Ratings")
+                    df = pd.DataFrame(ratings)
+                    display_cols = {
+                        "question_id": "Q#",
+                        "question_text": "Question",
+                        "selected_rating": "Rating",
+                        "extracted_evidence": "Evidence",
+                        "confidence": "Confidence",
+                        "missing_info": "Missing",
+                    }
+                    df = df.rename(columns={k: v for k, v in display_cols.items() if k in df.columns})
+                    # Round confidence
+                    if "Confidence" in df.columns:
+                        df["Confidence"] = df["Confidence"].apply(lambda x: round(float(x), 2) if x else 0)
+                    if "Missing" in df.columns:
+                        df["Missing"] = df["Missing"].apply(lambda x: "Yes" if x else "No")
+
+                    def _style_rating(val):
+                        if val == "A":
+                            return "background-color: #dcfce7; color: #166534; font-weight: bold;"
+                        elif val == "B":
+                            return "background-color: #fef9c3; color: #854d0e; font-weight: bold;"
+                        elif val == "C":
+                            return "background-color: #fee2e2; color: #991b1b; font-weight: bold;"
+                        return ""
+
+                    def _style_confidence(val):
+                        try:
+                            v = float(val)
+                            if v >= 0.7:
+                                return "color: #22c55e; font-weight: bold;"
+                            elif v >= 0.4:
+                                return "color: #f59e0b; font-weight: bold;"
+                            else:
+                                return "color: #ef4444; font-weight: bold;"
+                        except (ValueError, TypeError):
+                            return ""
+
+                    show_cols = [c for c in ["Q#", "Question", "Rating", "Evidence", "Confidence", "Missing"] if c in df.columns]
+                    styled_df = df[show_cols].style.map(_style_rating, subset=["Rating"]).map(_style_confidence, subset=["Confidence"])
+                    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+                    # --- District Comparison (if pre-filled ratings exist) ---
+                    if existing_ratings:
+                        with st.expander("District vs AI Rating Comparison"):
+                            comp_data = []
+                            for r in ratings:
+                                qid = r.get("question_id", "")
+                                if qid in existing_ratings:
+                                    ai_rating = r.get("selected_rating", "")
+                                    district_rating = existing_ratings[qid]
+                                    comp_data.append({
+                                        "Q#": qid,
+                                        "District Rating": district_rating,
+                                        "AI Rating": ai_rating,
+                                        "Match": "Yes" if district_rating == ai_rating else "No",
+                                    })
+                            if comp_data:
+                                comp_df = pd.DataFrame(comp_data)
+                                matches = sum(1 for c in comp_data if c["Match"] == "Yes")
+                                st.info(f"Agreement: {matches}/{len(comp_data)} questions ({matches/len(comp_data)*100:.0f}%)")
+                                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+                    # --- Download & Reset ---
+                    dl_col, reset_col, _ = st.columns([1, 1, 3])
+                    with dl_col:
+                        excel_buf = build_evaluation_excel(eval_result, recommendation, project_name)
+                        st.download_button(
+                            label="Download (.xlsx)",
+                            data=excel_buf.getvalue(),
+                            file_name=f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key="pde_download",
+                        )
+                    with reset_col:
+                        if st.button("Reset", key="pde_reset"):
+                            for key in [k for k in list(st.session_state.keys()) if k.startswith("pde_")]:
+                                del st.session_state[key]
+                            st.rerun()
+        with col73:
+            st.write("")
 
     else:
         with col22:
