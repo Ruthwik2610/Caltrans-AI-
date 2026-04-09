@@ -1372,7 +1372,7 @@ if app_option != "Select the Usecase":
             st.subheader("Upload Nomination Fact Sheet")
         with col24:
             delivery_file = st.file_uploader(
-                "Upload Completed Alt Delivery Nomination Fact Sheet",
+                "Upload project nomination fact sheet (.docx or .pdf)",
                 type=["docx", "pdf"],
                 key="delivery_upload",
             )
@@ -1383,26 +1383,27 @@ if app_option != "Select the Usecase":
             if not delivery_file:
                 st.markdown("""
                 <div style="
-                    background: linear-gradient(135deg, #f0f7ff 0%, #e8f0fe 100%);
-                    border: 1px solid #bcd4f0;
-                    border-radius: 12px;
-                    padding: 24px 28px;
+                    background: #ffffff;
+                    border: 1.5px solid #bcd4f0;
+                    border-radius: 14px;
+                    padding: 28px 32px;
                     margin: 20px 0;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
                 ">
-                    <h3 style="margin: 0 0 12px 0; color: #1a3d6e;">Project Delivery Method Evaluator</h3>
-                    <p style="color: #334155; margin: 0 0 12px 0;">
-                        This tool evaluates a completed Alternative Delivery Nomination Fact Sheet against the
-                        25-question delivery selection rubric (Sections A through F) and recommends the most
-                        appropriate project delivery method.
+                    <h3 style="margin: 0 0 14px 0; color: #1F4E79;">Project Delivery Method Evaluator</h3>
+                    <p style="color: #334155; margin: 0 0 16px 0;">
+                        This tool evaluates a project nomination fact sheet and recommends the most
+                        appropriate delivery method based on the project's scope, schedule, cost,
+                        innovation potential, and staffing considerations.
                     </p>
-                    <ol style="color: #475569; margin: 0; padding-left: 20px;">
-                        <li><strong>Upload</strong> a completed Nomination Fact Sheet (.docx or .pdf) with project narratives filled in.</li>
-                        <li><strong>Run Evaluation</strong> to have the AI assess all 25 rubric questions based on the narrative content.</li>
-                        <li><strong>Review</strong> the A/B/C ratings, evidence extracted, and confidence scores.</li>
+                    <ol style="color: #475569; margin: 0; padding-left: 20px; line-height: 1.8;">
+                        <li><strong>Upload</strong> your completed nomination fact sheet.</li>
+                        <li><strong>Evaluate</strong> to analyze the project characteristics.</li>
+                        <li><strong>Review</strong> the ratings, evidence, and recommendation.</li>
                         <li><strong>Download</strong> the results as an Excel report.</li>
                     </ol>
-                    <p style="color: #64748b; margin: 12px 0 0 0; font-size: 0.85rem;">
-                        <strong>6 Delivery Methods:</strong> Design-Bid-Build, Design-Sequencing, Design-Build/Low-Bid,
+                    <p style="color: #64748b; margin: 16px 0 0 0; font-size: 0.85rem;">
+                        <strong>Delivery Methods:</strong> Design-Bid-Build, Design-Sequencing, Design-Build/Low-Bid,
                         Design-Build/Best-Value, CM/GC, Progressive Design-Build
                     </p>
                 </div>
@@ -1427,27 +1428,25 @@ if app_option != "Select the Usecase":
                 narrative_text = st.session_state.get("pde_narrative", "")
                 existing_ratings = st.session_state.get("pde_existing_ratings", {})
 
-                # Show extracted info summary
-                word_count = len(narrative_text.split())
-                st.info(f"Extracted {word_count} words from **{file_name}**. "
-                        + (f"Found {len(existing_ratings)} pre-filled district ratings." if existing_ratings else "No pre-filled ratings detected."))
+                # Show file loaded confirmation
+                st.success(f"Project file loaded: **{file_name}**")
 
                 # Load knowledge base (cached)
                 if "pde_kb_text" not in st.session_state:
-                    with st.spinner("Loading delivery method knowledge base..."):
+                    with st.spinner("Preparing evaluation..."):
                         st.session_state.pde_kb_text = load_delivery_method_kb()
 
                 # Run evaluation button
                 if "pde_eval_result" not in st.session_state:
-                    if st.button("Run Evaluation", type="primary", key="pde_run"):
-                        with st.spinner("Evaluating 25 rubric questions with GPT-4o... This may take 30-60 seconds."):
+                    if st.button("Evaluate Project", type="primary", key="pde_run"):
+                        with st.spinner("Analyzing project details... This may take up to a minute."):
                             eval_result = run_delivery_evaluation(
                                 narrative_text,
                                 st.session_state.pde_kb_text,
                                 existing_ratings if existing_ratings else None,
                             )
                         if "error" in eval_result:
-                            st.error(f"Evaluation failed: {eval_result['error']}")
+                            st.error("Unable to complete the evaluation. Please try again.")
                         else:
                             st.session_state.pde_eval_result = eval_result
                             st.session_state.pde_recommendation = compute_delivery_recommendation(
@@ -1464,37 +1463,101 @@ if app_option != "Select the Usecase":
                     missing = eval_result.get("missing_questions", [])
                     project_name = eval_result.get("project_name", file_name.rsplit(".", 1)[0])
 
-                    # --- Recommendation Banner ---
+                    # --- Recommendation Card ---
                     rec_method = recommendation.get("recommended_method", "N/A")
                     comp_score = recommendation.get("composite_score", 0)
+                    runner_up = recommendation.get("runner_up_method", "N/A")
                     st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #1F4E79 0%, #2563eb 100%);
-                         border-radius: 12px; padding: 20px 28px; margin: 10px 0 20px 0;">
-                        <p style="color: rgba(255,255,255,0.7); margin: 0 0 4px 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px;">
+                    <div style="
+                        background: #ffffff;
+                        border: 1.5px solid #bcd4f0;
+                        border-radius: 14px;
+                        padding: 28px 36px;
+                        margin: 10px 0 24px 0;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                    ">
+                        <p style="color: #64748b; margin: 0 0 8px 0; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">
                             Recommended Delivery Method</p>
-                        <p style="color: white; margin: 0; font-size: 1.6rem; font-weight: 700;">
-                            {rec_method}</p>
-                        <p style="color: rgba(255,255,255,0.6); margin: 6px 0 0 0; font-size: 0.85rem;">
-                            Composite Score: {comp_score:.2f} / 3.00 &nbsp;|&nbsp; Runner-up: {recommendation.get('runner_up_method', 'N/A')}</p>
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px;">
+                            <p style="color: #1F4E79; margin: 0; font-size: 2rem; font-weight: 700; line-height: 1.2;">
+                                {rec_method}</p>
+                            <p style="color: #475569; margin: 0; font-size: 1.1rem; font-weight: 500;">
+                                Score: {comp_score:.2f} / 3.00</p>
+                        </div>
+                        <p style="color: #64748b; margin: 12px 0 0 0; font-size: 0.95rem;">
+                            Alternative: {runner_up}</p>
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # --- Borderline Warning ---
+                    # --- Override Notes (if rules fired) ---
+                    override_reasons = recommendation.get("override_reasons", [])
+                    if override_reasons:
+                        reasons_html = "".join(f"<li style='margin-bottom: 4px;'>{r}</li>" for r in override_reasons)
+                        st.markdown(f"""
+                        <div style="
+                            background: #eff6ff;
+                            border-left: 4px solid #3b82f6;
+                            border-radius: 0 8px 8px 0;
+                            padding: 16px 20px;
+                            margin: 0 0 16px 0;
+                        ">
+                            <p style="color: #1e40af; margin: 0 0 8px 0; font-weight: 600;">
+                                Evaluation adjusted based on project characteristics:</p>
+                            <ul style="color: #1e3a5f; margin: 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
+                                {reasons_html}
+                            </ul>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # --- Close Match Notice ---
                     if recommendation.get("is_borderline"):
-                        st.warning(f"This is a borderline case between **{rec_method}** and **{recommendation.get('runner_up_method')}**. Review the qualitative comparison below.")
-                        with st.expander("View Qualitative Comparison"):
+                        st.markdown(f"""
+                        <div style="
+                            background: #fffbeb;
+                            border-left: 4px solid #f59e0b;
+                            border-radius: 0 8px 8px 0;
+                            padding: 16px 20px;
+                            margin: 0 0 16px 0;
+                        ">
+                            <p style="color: #92400e; margin: 0; font-weight: 600;">
+                                This is a close match between {rec_method} and {runner_up}.</p>
+                            <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
+                                Review the comparison below to confirm the best fit for this project.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        with st.expander("View Detailed Comparison"):
                             st.markdown(recommendation.get("comparison_text", ""))
 
-                    # --- Missing Info Warning ---
+                    # --- Missing Info Notice ---
                     if missing:
-                        st.warning(
-                            f"**{len(missing)} of 25 questions** had insufficient evidence in the narrative: "
-                            f"{', '.join(missing)}. Ratings for these were estimated using domain knowledge. "
-                            f"Consider requesting additional project information from the district."
-                        )
+                        section_map = {
+                            "A": "Project Scope", "B": "Schedule",
+                            "C": "Innovation", "D": "Quality",
+                            "E": "Cost", "F": "Staffing",
+                        }
+                        section_counts = {}
+                        for qid in missing:
+                            sec = section_map.get(qid[0], qid[0])
+                            section_counts[sec] = section_counts.get(sec, 0) + 1
+                        grouped = ", ".join(f"{name} ({count})" for name, count in section_counts.items())
 
-                    # --- Section Score Breakdown ---
-                    with st.expander("Section Score Breakdown", expanded=True):
+                        st.markdown(f"""
+                        <div style="
+                            background: #fffbeb;
+                            border-left: 4px solid #f59e0b;
+                            border-radius: 0 8px 8px 0;
+                            padding: 16px 20px;
+                            margin: 0 0 16px 0;
+                        ">
+                            <p style="color: #92400e; margin: 0; font-weight: 600;">
+                                Some project details were not found in the document.</p>
+                            <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
+                                Providing more detail in these sections would improve accuracy: {grouped}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    # --- Evaluation Summary by Section ---
+                    with st.expander("Evaluation Summary by Section", expanded=True):
                         section_names = {
                             "A": "Project Scope & Characteristics",
                             "B": "Schedule Issues",
@@ -1515,6 +1578,31 @@ if app_option != "Select the Usecase":
                                 "Weighted": f"{avg * weight:.3f}",
                             })
                         st.dataframe(pd.DataFrame(sec_data), use_container_width=True, hide_index=True)
+
+                    # --- Evaluation Rules Reference ---
+                    with st.expander("Evaluation Rules Reference"):
+                        from src.project_delivery_evaluator import OVERRIDE_RULES
+                        st.markdown("""
+                        <p style="color: #475569; font-size: 0.9rem; margin-bottom: 12px;">
+                            The following rules are applied after scoring to ensure the recommendation
+                            aligns with Caltrans delivery method requirements and project constraints.</p>
+                        """, unsafe_allow_html=True)
+                        for rule in OVERRIDE_RULES:
+                            st.markdown(f"""
+                            <div style="
+                                border: 1px solid #e2e8f0;
+                                border-radius: 8px;
+                                padding: 12px 16px;
+                                margin-bottom: 8px;
+                            ">
+                                <p style="margin: 0 0 4px 0; font-weight: 600; color: #1F4E79; font-size: 0.9rem;">
+                                    {rule['id']}: {rule['name']}</p>
+                                <p style="margin: 0 0 4px 0; color: #64748b; font-size: 0.8rem;">
+                                    Trigger: <code>{rule['trigger']}</code></p>
+                                <p style="margin: 0; color: #475569; font-size: 0.85rem;">
+                                    {rule['description']}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
 
                     # --- Ratings Dataframe ---
                     st.subheader("Detailed Question Ratings")

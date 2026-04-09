@@ -488,6 +488,15 @@ def compute_delivery_recommendation(ratings: list) -> dict:
         composite, section_scores, rating_lookup
     )
 
+    # Apply document-based override rules
+    recommended, runner_up, override_reasons = _apply_overrides(
+        recommended, runner_up, rating_lookup
+    )
+
+    # Recompute borderline comparison if override changed the recommendation
+    if override_reasons and is_borderline:
+        comparison = _build_comparison(recommended, runner_up, composite, section_scores)
+
     return {
         "composite_score": round(composite, 3),
         "section_scores": {k: round(v, 3) for k, v in section_scores.items()},
@@ -495,6 +504,7 @@ def compute_delivery_recommendation(ratings: list) -> dict:
         "runner_up_method": runner_up,
         "is_borderline": is_borderline,
         "comparison_text": comparison,
+        "override_reasons": override_reasons,
     }
 
 
@@ -584,14 +594,176 @@ def _upper_range_method(section_scores: dict, rating_lookup: dict) -> tuple:
     return "CM/GC", "Design-Build/Best-Value"
 
 
+# Fallback hierarchy: most flexible → most constrained
+_FALLBACK_ORDER = [
+    "CM/GC",
+    "Design-Build/Best-Value",
+    "Design-Build/Low-Bid",
+    "Progressive Design-Build",
+    "Design-Sequencing",
+    "Design-Bid-Build",
+]
+
+# Override rules with human-readable descriptions for UI display
+OVERRIDE_RULES = [
+    {
+        "id": "R1",
+        "name": "Early-stage design requires flexible procurement",
+        "trigger": "A1 = C",
+        "description": "Project is in conceptual stage (before PA&ED). Design-Bid-Build and Design-Sequencing both require advanced design completion before procurement.",
+        "blocks": {"Design-Bid-Build", "Design-Sequencing"},
+    },
+    {
+        "id": "R2",
+        "name": "Large projects exceed DBB scope",
+        "trigger": "A2 = C",
+        "description": "Project exceeds $75M construction capital. Projects of this scale typically require collaborative or design-build delivery methods.",
+        "blocks": {"Design-Bid-Build"},
+    },
+    {
+        "id": "R3",
+        "name": "Very complex projects need collaborative delivery",
+        "trigger": "A3 = C",
+        "description": "Very complex project with significant schedule complexity. Requires three-party collaboration (Department, Contractor, ICE) that DBB and Design-Sequencing do not provide.",
+        "blocks": {"Design-Bid-Build", "Design-Sequencing"},
+    },
+    {
+        "id": "R4",
+        "name": "Maximum schedule compression blocks DBB",
+        "trigger": "B1 = C AND B2 = C",
+        "description": "Project requires maximum fast-tracking and schedule compression. DBB has the longest delivery schedule and does not allow early work packages.",
+        "blocks": {"Design-Bid-Build"},
+    },
+    {
+        "id": "R5",
+        "name": "Performance specifications favor Design-Build",
+        "trigger": "C2 = C",
+        "description": "Project uses performance specifications for significant elements. Design-Build methods leverage ATCs (Alternative Technical Concepts) to meet performance outcomes.",
+        "blocks": set(),
+        "favor": "Design-Build/Best-Value",
+    },
+    {
+        "id": "R6",
+        "name": "Limited funding blocks accelerated methods",
+        "trigger": "E3 = A",
+        "description": "Funding is secured for design phase only. Design-Build and Progressive Design-Build require construction capital commitment for procurement.",
+        "blocks": {"Design-Build/Best-Value", "Design-Build/Low-Bid", "Progressive Design-Build"},
+    },
+    {
+        "id": "R7",
+        "name": "High procurement cost limits Design-Build",
+        "trigger": "E4 = A",
+        "description": "Procurement cost would significantly limit competition. Design-Build has higher procurement costs including stipends for proposers.",
+        "blocks": {"Design-Build/Best-Value"},
+    },
+    {
+        "id": "R8",
+        "name": "No in-house design expertise blocks DBB",
+        "trigger": "F2 = C",
+        "description": "Specialized design expertise not available in-house. DBB requires the Department to own and complete the full design. DB and PDB transfer design ownership to the contractor.",
+        "blocks": {"Design-Bid-Build"},
+    },
+    {
+        "id": "R9",
+        "name": "Inadequate procurement expertise blocks complex methods",
+        "trigger": "F1 = A",
+        "description": "Department lacks resources or expertise for complex procurement. Design-Build and PDB require sophisticated two-phase procurement (RFQ + RFP).",
+        "blocks": {"Design-Build/Best-Value", "Design-Build/Low-Bid", "Progressive Design-Build"},
+    },
+]
+
+
+def _apply_overrides(recommended: str, runner_up: str, rating_lookup: dict) -> tuple:
+    """Apply document-based override rules that block or favor certain methods.
+
+    Returns: (recommended, runner_up, list_of_override_reason_strings)
+    """
+    blocked = set()
+    reasons = []
+    favor = None
+
+    # Rule 1: A1=C — early stage blocks DBB, Design-Seq
+    if rating_lookup.get("A1") == "C":
+        blocked.update({"Design-Bid-Build", "Design-Sequencing"})
+        reasons.append(OVERRIDE_RULES[0]["description"])
+
+    # Rule 2: A2=C — large project blocks DBB
+    if rating_lookup.get("A2") == "C":
+        blocked.add("Design-Bid-Build")
+        reasons.append(OVERRIDE_RULES[1]["description"])
+
+    # Rule 3: A3=C — very complex blocks DBB, Design-Seq
+    if rating_lookup.get("A3") == "C":
+        blocked.update({"Design-Bid-Build", "Design-Sequencing"})
+        reasons.append(OVERRIDE_RULES[2]["description"])
+
+    # Rule 4: B1=C AND B2=C — max schedule compression blocks DBB
+    if rating_lookup.get("B1") == "C" and rating_lookup.get("B2") == "C":
+        blocked.add("Design-Bid-Build")
+        reasons.append(OVERRIDE_RULES[3]["description"])
+
+    # Rule 5: C2=C — performance specs favor DB/Best-Value
+    if rating_lookup.get("C2") == "C":
+        favor = "Design-Build/Best-Value"
+        reasons.append(OVERRIDE_RULES[4]["description"])
+
+    # Rule 6: E3=A — limited funding blocks DB, PDB
+    if rating_lookup.get("E3") == "A":
+        blocked.update({"Design-Build/Best-Value", "Design-Build/Low-Bid", "Progressive Design-Build"})
+        reasons.append(OVERRIDE_RULES[5]["description"])
+
+    # Rule 7: E4=A — high procurement cost blocks DB/Best-Value
+    if rating_lookup.get("E4") == "A":
+        blocked.add("Design-Build/Best-Value")
+        reasons.append(OVERRIDE_RULES[6]["description"])
+
+    # Rule 8: F2=C — no design resources blocks DBB
+    if rating_lookup.get("F2") == "C":
+        blocked.add("Design-Bid-Build")
+        reasons.append(OVERRIDE_RULES[7]["description"])
+
+    # Rule 9: F1=A — inadequate procurement blocks DB, PDB
+    if rating_lookup.get("F1") == "A":
+        blocked.update({"Design-Build/Best-Value", "Design-Build/Low-Bid", "Progressive Design-Build"})
+        reasons.append(OVERRIDE_RULES[8]["description"])
+
+    # Apply favor rule (only if not blocked)
+    if favor and favor not in blocked and recommended != favor:
+        runner_up = recommended
+        recommended = favor
+
+    # If recommended is blocked, find best non-blocked alternative
+    if recommended in blocked:
+        # Try runner_up first
+        if runner_up and runner_up not in blocked:
+            recommended, runner_up = runner_up, recommended
+        else:
+            # Walk fallback hierarchy
+            for method in _FALLBACK_ORDER:
+                if method not in blocked and method != recommended:
+                    old = recommended
+                    recommended = method
+                    runner_up = old
+                    break
+
+    # If runner_up is also blocked, pick next available
+    if runner_up in blocked:
+        for method in _FALLBACK_ORDER:
+            if method not in blocked and method != recommended:
+                runner_up = method
+                break
+
+    return recommended, runner_up, reasons
+
+
 def _build_comparison(recommended: str, runner_up: str, composite: float, section_scores: dict) -> str:
     """Build a qualitative comparison for borderline cases."""
     lines = [
-        f"**Borderline Analysis** (Composite Score: {composite:.2f})",
+        f"**Score: {composite:.2f} / 3.00**",
         "",
         f"The scores place this project near the boundary between **{recommended}** and **{runner_up}**.",
         "",
-        "**Section Score Breakdown:**",
+        "**Section Scores:**",
     ]
     section_names = {
         "A": "Project Scope & Characteristics",
@@ -603,7 +775,7 @@ def _build_comparison(recommended: str, runner_up: str, composite: float, sectio
     }
     for s, name in section_names.items():
         score = section_scores.get(s, 2.0)
-        lines.append(f"- {name}: {score:.2f}/3.00 (weight: {SECTION_WEIGHTS[s]:.0%})")
+        lines.append(f"- {name}: {score:.2f} / 3.00 (weight: {SECTION_WEIGHTS[s]:.0%})")
 
     lines.extend([
         "",
@@ -697,7 +869,7 @@ def build_evaluation_excel(eval_data: dict, recommendation: dict, project_name: 
     ws2.cell(row=4, column=1, value="Runner-Up Method:").font = Font(bold=True)
     ws2.cell(row=4, column=2, value=recommendation.get("runner_up_method", ""))
     ws2.cell(row=5, column=1, value="Composite Score:").font = Font(bold=True)
-    ws2.cell(row=5, column=2, value=f"{recommendation.get('composite_score', 0):.3f} / 3.000")
+    ws2.cell(row=5, column=2, value=f"{recommendation.get('composite_score', 0):.2f} / 3.00")
     ws2.cell(row=6, column=1, value="Borderline Case:").font = Font(bold=True)
     ws2.cell(row=6, column=2, value="Yes" if recommendation.get("is_borderline") else "No")
 
