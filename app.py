@@ -1669,13 +1669,18 @@ if app_option != "Select the Usecase":
                                 st.dataframe(comp_df, use_container_width=True, hide_index=True)
 
                     # --- Download & Reset ---
+                    # Cache Excel bytes in session state to survive reruns
+                    if "pde_excel_bytes" not in st.session_state:
+                        excel_buf = build_evaluation_excel(eval_result, recommendation, project_name)
+                        st.session_state.pde_excel_bytes = excel_buf.getvalue()
+                        st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx"
+
                     dl_col, reset_col, _ = st.columns([1, 1, 3])
                     with dl_col:
-                        excel_buf = build_evaluation_excel(eval_result, recommendation, project_name)
                         st.download_button(
                             label="Download (.xlsx)",
-                            data=excel_buf.getvalue(),
-                            file_name=f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx",
+                            data=st.session_state.pde_excel_bytes,
+                            file_name=st.session_state.pde_excel_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key="pde_download",
                         )
