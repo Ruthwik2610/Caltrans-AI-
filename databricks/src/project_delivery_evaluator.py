@@ -1,93 +1,37 @@
 import json
 import datetime
-import re
-import logging
 from io import BytesIO
 from openai import OpenAI
 from docx import Document
 from src.delivery_method_kb import DELIVERY_METHOD_KB_TEXT
 
-def _get_client(model_name: str = "gpt-4o"):
+def _get_client(model_name: str = "databricks-gemma-3-12b-it"):
     """
-    Universal LLM Client Switcher:
-    - Defaults to standard OpenAI/Groq if API keys are found.
-    - Falls back to Databricks Model Serving if running in a Databricks App.
+    Direct Databricks Gemma Connector:
+    Uses native App Identity (Service Principal) to authenticate.
+    No hardcoded tokens required.
     """
-    import os
+    from databricks.sdk import WorkspaceClient
     from openai import OpenAI
-
-    # 1. Check for standard Groq environment (Optimized for speed)
-    if any(m in model_name.lower() for m in ["groq", "llama-3.3"]):
-        api_key = os.getenv("GROQ_API_KEY")
-        if api_key:
-            return OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
-
-    # 2. Check for standard OpenAI environment
-    if any(m in model_name.lower() for m in ["gpt", "openai"]):
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key:
-            return OpenAI(api_key=api_key)
-
-    # 3. Fallback to Databricks (Local or Enterprise)
+    
     try:
-        from databricks.sdk import WorkspaceClient
+        # Use the Databricks SDK to fetch the auto-injected App Identity token
         w = WorkspaceClient()
-        return w.serving_endpoints.get_open_ai_client()
-    except Exception:
-        # Final fallback for local Databricks debugging
+        auth_data = w.config.authenticate()
+        token = auth_data.get("Authorization", "").replace("Bearer ", "")
+        
+        return OpenAI(
+            api_key=token,
+            base_url=f"{w.config.host.rstrip('/')}/serving-endpoints"
+        )
+    except Exception as e:
+        # Emergency fallback for local testing if the SDK is not available
+        import os
         token = os.getenv("DATABRICKS_TOKEN")
         host = os.getenv("DATABRICKS_HOST")
         if token and host:
-            return OpenAI(api_key=token, base_url=f"{host.rstrip('/')}/serving-endpoints")
-        
-        # If all else fails, try standard OpenAI one last time with whatever is in env
-        return OpenAI()
-
-def _extract_json(text: str, finish_reason: str = "unknown") -> dict:
-    """
-    Robustly extract JSON from a string that might contain markdown blocks or leading/trailing text.
-    Provides diagnostic info if parsing fails.
-    """
-    if not text or not text.strip():
-        raise ValueError(f"AI response was empty (Finish Reason: {finish_reason}).")
-
-    # Clean the input
-    text = text.strip()
-
-    # Try direct parse first (fastest)
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    # Try regex for markdown block ```json ... ```
-    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Try regex for just ``` ... ```
-    match = re.search(r"```\s*([\s\S]*?)```", text)
-    if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
-
-    # Last resort: find start and end braces
-    first_brace = text.find("{")
-    last_brace = text.rfind("}")
-    if first_brace != -1 and last_brace != -1:
-        try:
-            return json.loads(text[first_brace:last_brace+1])
-        except json.JSONDecodeError:
-            pass
-
-    # If all failed, provide a sample of the actual response for debugging
-    sample = (text[:200] + "...") if len(text) > 200 else text
-    raise ValueError(f"Could not parse AI response as JSON. Finish Reason: {finish_reason}. Raw Output Start: {sample}")
+             return OpenAI(api_key=token, base_url=f"{host.rstrip('/')}/serving-endpoints")
+        raise Exception(f"Databricks Authentication Failed. Please ensure this app is running within a Databricks App environment or that DATABRICKS_TOKEN/HOST are set locally. Error: {str(e)}")
 
 # ==============================================================================
 # RUBRIC: 25 Questions extracted from AltDeliveryNominFactSheet Tables 3-8
@@ -534,13 +478,9 @@ NOMINATION FACT SHEET CONTENT:
             ],
             temperature=0.0,
         )
-        
-        main_text = response.choices[0].message.content
-        main_reason = response.choices[0].finish_reason
-        
         try:
-            return _extract_json(main_text, finish_reason=main_reason)
-        except (json.JSONDecodeError, ValueError):
+            return json.loads(response.choices[0].message.content)
+        except json.JSONDecodeError:
             # Retry once on malformed JSON
             retry = client.chat.completions.create(
                 model=model_name,
@@ -551,9 +491,7 @@ NOMINATION FACT SHEET CONTENT:
                 ],
                 temperature=0.0,
             )
-            retry_text = retry.choices[0].message.content
-            retry_reason = retry.choices[0].finish_reason
-            return _extract_json(retry_text, finish_reason=retry_reason)
+            return json.loads(retry.choices[0].message.content)
     except Exception as e:
         return {"error": f"AI service error during delivery evaluation: {str(e)}"}
 
@@ -1249,111 +1187,46 @@ def _build_comparison(recommended: str, runner_up: str, composite: float, sectio
 # ==============================================================================
 # EXCEL EXPORT
 # ==============================================================================
-
-# Shared styles for Excel generation
-def _get_styles():
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    styles = {}
-    styles['hdr_fill'] = PatternFill("solid", fgColor="1F4E79")
-    styles['hdr_font'] = Font(bold=True, color="FFFFFF", size=11)
-    styles['even_fill'] = PatternFill("solid", fgColor="EBF3FB")
-    styles['bdr'] = Border(
-        left=Side("thin", "000000"), right=Side("thin", "000000"),
-        top=Side("thin", "000000"), bottom=Side("thin", "000000"),
-    )
-    styles['wrap'] = Alignment(wrap_text=True, vertical="top")
-    styles['center'] = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    return styles
-
-def _title(ws, text, cols):
-    from openpyxl.styles import Font, Alignment
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=cols)
-    c = ws.cell(row=1, column=1, value=text)
-    c.font = Font(bold=True, size=14, color="1F4E79")
-    c.alignment = Alignment(horizontal="center", vertical="center")
-    ws.row_dimensions[1].height = 30
-
-def _header_row(ws, row, headers):
-    s = _get_styles()
-    for ci, h in enumerate(headers, 1):
-        c = ws.cell(row=row, column=ci, value=h)
-        c.font, c.fill, c.border, c.alignment = s['hdr_font'], s['hdr_fill'], s['bdr'], s['center']
-
-def _data_row(ws, row, values):
-    s = _get_styles()
-    fill = s['even_fill'] if row % 2 == 0 else None
-    for ci, val in enumerate(values, 1):
-        c = ws.cell(row=row, column=ci, value=val)
-        c.border, c.alignment = s['bdr'], s['wrap']
-        if fill:
-            c.fill = fill
-    return fill
-
-def _used_bounds(ws):
-    max_r = 0
-    max_c = 0
-    for r in range(1, ws.max_row + 1):
-        row_has_data = False
-        for c in range(1, ws.max_column + 1):
-            v = ws.cell(row=r, column=c).value
-            if v is not None and str(v).strip() != "":
-                row_has_data = True
-                max_c = max(max_c, c)
-        if row_has_data:
-            max_r = r
-    return max_r, max_c
-
-def _apply_template_design(ws):
-    from openpyxl.styles import Alignment
-    s = _get_styles()
-    max_r, max_c = _used_bounds(ws)
-    if max_r == 0 or max_c == 0:
-        return
-
-    ws.freeze_panes = "A2"
-    ws.sheet_view.zoomScale = 90
-
-    # Base styling on all used cells
-    for r in range(1, max_r + 1):
-        ws.row_dimensions[r].height = 20
-        non_empty = 0
-        row_texts = []
-        for c in range(1, max_c + 1):
-            cell = ws.cell(row=r, column=c)
-            val = cell.value
-            txt = str(val).strip() if val is not None else ""
-            if txt:
-                non_empty += 1
-                row_texts.append(txt.lower())
-            cell.font = s['body_font']
-            cell.alignment = Alignment(wrap_text=True, vertical="top")
-            cell.border = s['bdr']
-
-        row_blob = " ".join(row_texts)
-        is_title = ("project delivery selection tool" in row_blob) or ("project summary worksheet" in row_blob)
-        is_header = any(keyword in row_blob for keyword in ["question", "worksheet", "scoring summary", "final selection", "criteria"])
-        
-        if is_title:
-            for c in range(1, max_c + 1):
-                cell = ws.cell(row=r, column=c)
-                cell.font = s['title_font']
-                if cell.value is not None and str(cell.value).strip():
-                    cell.fill = s['template_hdr_fill']
-                    cell.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center")
-            ws.row_dimensions[r].height = 24
-        elif is_header:
-            for c in range(1, max_c + 1):
-                cell = ws.cell(row=r, column=c)
-                if cell.value is not None and str(cell.value).strip():
-                    cell.fill = s['template_subhdr_fill']
-                    cell.font = s['subhdr_font']
-
 def build_evaluation_excel(eval_data: dict, recommendation: dict, project_name: str,
                            multi_method_data: dict = None, validation_data: dict = None) -> BytesIO:
     """Build a styled 5-sheet Excel workbook with full analysis."""
     import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
+
+    # --- Shared styles ---
+    hdr_fill = PatternFill("solid", fgColor="1F4E79")
+    hdr_font = Font(bold=True, color="FFFFFF", size=11)
+    even_fill = PatternFill("solid", fgColor="EBF3FB")
+    bdr = Border(
+        left=Side("thin", "000000"), right=Side("thin", "000000"),
+        top=Side("thin", "000000"), bottom=Side("thin", "000000"),
+    )
+    wrap = Alignment(wrap_text=True, vertical="top")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    def _title(ws, text, cols):
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=cols)
+        c = ws.cell(row=1, column=1, value=text)
+        c.font = Font(bold=True, size=14, color="1F4E79")
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 30
+
+    def _header_row(ws, row, headers):
+        for ci, h in enumerate(headers, 1):
+            c = ws.cell(row=row, column=ci, value=h)
+            c.font, c.fill, c.border, c.alignment = hdr_font, hdr_fill, bdr, center
+
+    def _data_row(ws, row, values):
+        fill = even_fill if row % 2 == 0 else PatternFill()
+        for ci, val in enumerate(values, 1):
+            c = ws.cell(row=row, column=ci, value=val)
+            c.border, c.alignment = bdr, wrap
+            if fill.fill_type:
+                c.fill = fill
+        return fill
 
     # ===== Sheet 1: Executive Dashboard =====
     ws1 = wb.create_sheet("Dashboard")
@@ -1594,205 +1467,3 @@ def build_evaluation_excel(eval_data: dict, recommendation: dict, project_name: 
     wb.save(buf)
     buf.seek(0)
     return buf
-
-
-def _safe_sheet_title(title: str) -> str:
-    """Return an Excel-safe sheet title (max 31 chars)."""
-    invalid = ['\\', '/', '*', '?', ':', '[', ']']
-    safe = title
-    for ch in invalid:
-        safe = safe.replace(ch, "-")
-    return safe[:31]
-
-
-def _populate_rubric_sheet(ws, q_list, rating_index, method_labels=None, single_method=None, title=None, project_name=None):
-    """
-    Helper to populate a worksheet with the full 25-question, 3-option rubric.
-    ws: worksheet
-    q_list: RUBRIC_QUESTIONS
-    rating_index: {qid: {selected_rating: 'A'}}
-    method_labels: List of labels for columns (if multiple)
-    single_method: If provided, show only this method's points
-    """
-    from openpyxl.styles import Font, Alignment, PatternFill
-    
-    # Fill colors for header rows
-    hdr_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-
-    # 1. Title/Project Header
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
-    head_text = title if title else f"Evaluation Rubric: {project_name}"
-    title_cell = ws.cell(row=1, column=1, value=head_text)
-    title_cell.font = Font(bold=True, size=14, color="1F4E78")
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    # 2. Header Row
-    if method_labels:
-        col_headers = ["ID", "Questionnaire"] + method_labels + ["Selected Rating"]
-    elif single_method:
-        col_headers = ["ID", "Questionnaire", f"{single_method} Points", "Selected Rating"]
-    else:
-        col_headers = ["ID", "Questionnaire", "Selected Rating"]
-
-    _header_row(ws, 2, col_headers)
-    
-    # 3. Data Rows
-    current_row = 3
-    for q in q_list:
-        qid = q["id"]
-        sec = qid[0]
-        robj = rating_index.get(qid, {})
-        sel_rating = robj.get("selected_rating", "").upper()
-        
-        # Question Header row
-        hdr_vals = [qid, q["question"]]
-        hdr_vals += [""] * (len(col_headers) - 2)
-        _data_row(ws, current_row, hdr_vals)
-        for c in range(1, len(col_headers) + 1):
-            ws.cell(row=current_row, column=c).font = Font(bold=True, size=10)
-            ws.cell(row=current_row, column=c).fill = hdr_fill
-        current_row += 1
-
-        # Option Rows (A, B, C)
-        for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
-            opt_text = q.get(opt_label, "")
-            if not opt_text: continue
-            
-            row_vals = ["", f"({opt_key}) {opt_text}"]
-            
-            if method_labels:
-                for m in method_labels:
-                    fit = _METHOD_AFFINITY.get(sec, {}).get(m, {}).get(opt_key, 0.5)
-                    row_vals.append(f"{fit * 10.0:.1f} pts")
-            elif single_method:
-                fit = _METHOD_AFFINITY.get(sec, {}).get(single_method, {}).get(opt_key, 0.5)
-                row_vals.append(f"{fit * 10.0:.1f} pts")
-            
-            # Indicator
-            row_vals.append("✓ Selected" if opt_key == sel_rating else "")
-            
-            _data_row(ws, current_row, row_vals)
-            # Alignment and text properties
-            ws.cell(row=current_row, column=2).alignment = Alignment(indent=2, wrap_text=True, vertical="top")
-            if opt_key == sel_rating:
-                for c in range(1, len(col_headers) + 1):
-                    ws.cell(row=current_row, column=c).font = Font(bold=True, color="00B050")
-            
-            current_row += 1
-        
-        # Spacer
-        current_row += 1
-
-    # Final formatting
-    ws.column_dimensions["B"].width = 100
-
-
-def build_evaluation_excel_v2(
-    eval_data: dict,
-    recommendation: dict,
-    project_name: str,
-    template_path: str,
-    multi_method_data: dict = None,
-) -> BytesIO:
-    """
-    Build V2 workbook:
-    - Keep the provided template sheet(s) as the summary presentation layer
-    - Add one detailed sheet per delivery method
-    """
-    import openpyxl
-    import pandas as pd
-    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-
-    try:
-        if str(template_path).lower().endswith(".xls") and not str(template_path).lower().endswith(".xlsx"):
-            # Convert legacy .xls template into an in-memory openpyxl workbook via calamine.
-            xls = pd.ExcelFile(template_path, engine="calamine")
-            wb = openpyxl.Workbook()
-            wb.remove(wb.active)
-            for sheet_name in xls.sheet_names:
-                df = pd.read_excel(template_path, sheet_name=sheet_name, header=None, engine="calamine")
-                ws = wb.create_sheet(_safe_sheet_title(sheet_name))
-                for r_idx in range(df.shape[0]):
-                    for c_idx in range(df.shape[1]):
-                        val = df.iat[r_idx, c_idx]
-                        if pd.isna(val):
-                            val = None
-                        ws.cell(row=r_idx + 1, column=c_idx + 1, value=val)
-        else:
-            if os.path.exists(template_path):
-                wb = openpyxl.load_workbook(template_path)
-            else:
-                wb = openpyxl.Workbook()
-                # If creating fresh, remove default sheet so our added ones are at the start
-                if "Sheet" in wb.sheetnames:
-                    wb.remove(wb["Sheet"])
-    except Exception as e:
-        print(f"DEBUG: V2 Template load failed: {e}. Falling back to fresh workbook.")
-        wb = openpyxl.Workbook()
-        if "Sheet" in wb.sheetnames:
-            wb.remove(wb["Sheet"])
-
-    # Remove all existing template sheets to ensure the new summary is the single source of truth
-    for ws in list(wb.worksheets):
-        wb.remove(ws)
-
-    import openpyxl
-
-    ratings = eval_data.get("ratings", [])
-    rating_index = {r.get("question_id"): r for r in ratings}
-    
-    try:
-        if str(template_path).lower().endswith(".xls") and not str(template_path).lower().endswith(".xlsx"):
-            import pandas as pd
-            xls = pd.ExcelFile(template_path, engine="calamine")
-            wb = openpyxl.Workbook()
-            wb.remove(wb.active)
-            for sheet_name in xls.sheet_names:
-                df = pd.read_excel(template_path, sheet_name=sheet_name, header=None, engine="calamine")
-                ws = wb.create_sheet(_safe_sheet_title(sheet_name))
-                for r_idx in range(df.shape[0]):
-                    for c_idx in range(df.shape[1]):
-                        val = df.iat[r_idx, c_idx]
-                        ws.cell(row=r_idx+1, column=c_idx+1, value=None if pd.isna(val) else val)
-        else:
-            wb = openpyxl.load_workbook(template_path) if os.path.exists(template_path) else openpyxl.Workbook()
-    except:
-        wb = openpyxl.Workbook()
-
-    # Remove all existing sheets to rebuild strictly from scratch with our logic
-    for ws in list(wb.worksheets):
-        wb.remove(ws)
-
-    method_labels = [
-        "Design-Bid-Build", "Design-Sequencing", "Design-Build/Low-Bid",
-        "Design-Build/Best-Value", "CM/GC", "Progressive Design-Build",
-    ]
-
-    # 1. Evaluation Summary (The main overview)
-    summary_ws = wb.create_sheet("Evaluation Summary")
-    _populate_rubric_sheet(
-        summary_ws, RUBRIC_QUESTIONS, rating_index, 
-        method_labels=method_labels,
-        title=f"Alternative Delivery Nomination Fact Sheet: {project_name}",
-        project_name=project_name
-    )
-    
-    # 2. Detailed Method Sheets (The 'elaborations')
-    for method in method_labels:
-        # Create a safe sheet name (e.g. 'DB-BV Evaluation')
-        safe_name = method.replace("Design-Build/", "DB-").split("/")[0]
-        if len(safe_name) > 20: safe_name = safe_name[:20]
-        m_ws = wb.create_sheet(f"{safe_name} Evaluation")
-        
-        _populate_rubric_sheet(
-            m_ws, RUBRIC_QUESTIONS, rating_index,
-            single_method=method,
-            title=f"{method} Detailed Evaluation: {project_name}",
-            project_name=project_name
-        )
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
-

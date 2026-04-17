@@ -18,10 +18,16 @@ from src.highway_incident_summarizer import summarize_caltrans_incidents
 from src.project_delivery_evaluator import (
     extract_text_from_docx as pde_extract_docx,
     extract_text_from_uploaded_pdf as pde_extract_pdf,
+    extract_multi_doc_context,
     load_delivery_method_kb,
     run_delivery_evaluation,
     compute_delivery_recommendation,
     build_evaluation_excel,
+    build_evaluation_excel_v2,
+    score_all_methods,
+    run_validation_analysis,
+    ALL_METHODS,
+    RUBRIC_QUESTIONS,
 )
 
 
@@ -145,6 +151,7 @@ if vAR_AI_application == "Caltrans":
                 "RAG-Document Intelligence",
                 "Personal Narrative Insights",
                 "Project Delivery Evaluator",
+                "Project Delivery Evaluator V2",
             ),
             key="app_select",
         )
@@ -1367,20 +1374,22 @@ if app_option != "Select the Usecase":
     elif app_option == "Highway Incident Summarizer":
         highway_incident_ui(app_option)
 
-    elif app_option == "Project Delivery Evaluator":
+    elif app_option in ["Project Delivery Evaluator", "Project Delivery Evaluator V2"]:
+        is_pde_v2_menu = app_option == "Project Delivery Evaluator V2"
         with col22:
             st.subheader("Upload Nomination Fact Sheet")
         with col24:
-            delivery_file = st.file_uploader(
-                "Upload project nomination fact sheet (.docx or .pdf)",
+            delivery_files = st.file_uploader(
+                "Upload project nomination fact sheet(s) (.docx or .pdf)",
                 type=["docx", "pdf"],
+                accept_multiple_files=True,
                 key="delivery_upload",
             )
 
         with col71:
             st.write("")
         with col72:
-            if not delivery_file:
+            if not delivery_files:
                 st.markdown("""
                 <div style="
                     background: #ffffff;
@@ -1397,7 +1406,7 @@ if app_option != "Select the Usecase":
                         innovation potential, and staffing considerations.
                     </p>
                     <ol style="color: #475569; margin: 0; padding-left: 20px; line-height: 1.8;">
-                        <li><strong>Upload</strong> your completed nomination fact sheet.</li>
+                        <li><strong>Upload</strong> your completed nomination fact sheet (and any supporting docs).</li>
                         <li><strong>Evaluate</strong> to analyze the project characteristics.</li>
                         <li><strong>Review</strong> the ratings, evidence, and recommendation.</li>
                         <li><strong>Download</strong> the results as an Excel report.</li>
@@ -1410,31 +1419,40 @@ if app_option != "Select the Usecase":
                 """, unsafe_allow_html=True)
             else:
                 # Extract text based on file type
-                file_name = delivery_file.name
-                if "pde_current_file" not in st.session_state or st.session_state.pde_current_file != file_name:
-                    # New file uploaded — reset state
+                file_names = sorted([f.name for f in delivery_files])
+                if "pde_current_files" not in st.session_state or st.session_state.pde_current_files != file_names:
+                    # New files uploaded — reset state
                     for key in [k for k in list(st.session_state.keys()) if k.startswith("pde_")]:
                         del st.session_state[key]
-                    st.session_state.pde_current_file = file_name
+                    st.session_state.pde_current_files = file_names
 
-                    if file_name.endswith(".docx"):
-                        narrative_text, existing_ratings = pde_extract_docx(delivery_file)
-                        st.session_state.pde_narrative = narrative_text
-                        st.session_state.pde_existing_ratings = existing_ratings
-                    else:
-                        st.session_state.pde_narrative = pde_extract_pdf(delivery_file)
-                        st.session_state.pde_existing_ratings = {}
+                    narrative_text = extract_multi_doc_context(delivery_files)
+                    
+                    existing_ratings = {}
+                    for f in delivery_files:
+                        if f.name.endswith(".docx"):
+                            f.seek(0)
+                            _, extracted_ratings = pde_extract_docx(f)
+                            if extracted_ratings:
+                                existing_ratings.update(extracted_ratings)
+
+                    st.session_state.pde_narrative = narrative_text
+                    st.session_state.pde_existing_ratings = existing_ratings
 
                 narrative_text = st.session_state.get("pde_narrative", "")
                 existing_ratings = st.session_state.get("pde_existing_ratings", {})
 
                 # Show file loaded confirmation
-                st.success(f"Project file loaded: **{file_name}**")
+                st.success(f"Loaded {len(delivery_files)} document(s): **{', '.join(file_names)}**")
 
                 # Load knowledge base (cached)
                 if "pde_kb_text" not in st.session_state:
                     with st.spinner("Preparing evaluation..."):
                         st.session_state.pde_kb_text = load_delivery_method_kb()
+                
+                # Role Selection
+                pde_role = st.radio("View Perspective", ["District Team (Internal)", "HQ Reviewer (Validation)"], horizontal=True, key="pde_role")
+                pde_report_mode = "Template Summary + Method Sheets (V2)" if is_pde_v2_menu else "Current Report (V1)"
 
                 # Run evaluation button
                 if "pde_eval_result" not in st.session_state:
@@ -1446,7 +1464,7 @@ if app_option != "Select the Usecase":
                                 existing_ratings if existing_ratings else None,
                             )
                         if "error" in eval_result:
-                            st.error("Unable to complete the evaluation. Please try again.")
+                            st.error(f"Evaluation Failed: {eval_result['error']}")
                         else:
                             st.session_state.pde_eval_result = eval_result
                             st.session_state.pde_recommendation = compute_delivery_recommendation(
@@ -1461,7 +1479,19 @@ if app_option != "Select the Usecase":
                     recommendation = st.session_state.pde_recommendation
                     ratings = eval_result.get("ratings", [])
                     missing = eval_result.get("missing_questions", [])
-                    project_name = eval_result.get("project_name", file_name.rsplit(".", 1)[0])
+                    project_name = eval_result.get("project_name", file_names[0].rsplit(".", 1)[0] if file_names else "project")
+
+                    # Compute multi-method scores (cached)
+                    if "pde_multi_method" not in st.session_state:
+                        st.session_state.pde_multi_method = score_all_methods(ratings)
+                    multi_method_data = st.session_state.pde_multi_method
+
+                    # Compute validation analysis if user ratings exist (cached)
+                    validation_data = None
+                    if existing_ratings:
+                        if "pde_validation" not in st.session_state:
+                            st.session_state.pde_validation = run_validation_analysis(ratings, existing_ratings)
+                        validation_data = st.session_state.pde_validation
 
                     # --- Recommendation Card ---
                     rec_method = recommendation.get("recommended_method", "N/A")
@@ -1489,201 +1519,481 @@ if app_option != "Select the Usecase":
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # --- Override Notes (if rules fired) ---
-                    override_reasons = recommendation.get("override_reasons", [])
-                    if override_reasons:
-                        reasons_html = "".join(f"<li style='margin-bottom: 4px;'>{r}</li>" for r in override_reasons)
-                        st.markdown(f"""
-                        <div style="
-                            background: #eff6ff;
-                            border-left: 4px solid #3b82f6;
-                            border-radius: 0 8px 8px 0;
-                            padding: 16px 20px;
-                            margin: 0 0 16px 0;
-                        ">
-                            <p style="color: #1e40af; margin: 0 0 8px 0; font-weight: 600;">
-                                Evaluation adjusted based on project characteristics:</p>
-                            <ul style="color: #1e3a5f; margin: 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
-                                {reasons_html}
-                            </ul>
-                        </div>
-                        """, unsafe_allow_html=True)
+                    if pde_report_mode == "Template Summary + Method Sheets (V2)":
+                        st.subheader("Template Questionnaire View")
+                        with st.expander("How scores are interpreted", expanded=True):
+                            st.markdown("""
+                            - **Alignment Points (0-10)**: Shows how well each question's answer aligns with that delivery method.
+                            - **Selected**: The chosen rubric rating (`A/B/C`) for each question based on document evidence.
+                            - **Suitability Score (Excel Only)**: Detailed high-precision calculation of method fit across all sections.
+                            - **Decision Explanation (Excel Only)**: Detailed rationale for method recommendation and ranking.
+                            """)
 
-                    # --- Close Match Notice ---
-                    if recommendation.get("is_borderline"):
-                        st.markdown(f"""
-                        <div style="
-                            background: #fffbeb;
-                            border-left: 4px solid #f59e0b;
-                            border-radius: 0 8px 8px 0;
-                            padding: 16px 20px;
-                            margin: 0 0 16px 0;
-                        ">
-                            <p style="color: #92400e; margin: 0; font-weight: 600;">
-                                This is a close match between {rec_method} and {runner_up}.</p>
-                            <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
-                                Review the comparison below to confirm the best fit for this project.</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        with st.expander("View Detailed Comparison"):
-                            st.markdown(recommendation.get("comparison_text", ""))
+                        rating_index = {r.get("question_id"): r for r in ratings}
+                        method_labels = [
+                            "Design-Bid-Build",
+                            "Design-Sequencing",
+                            "Design-Build/Low-Bid",
+                            "Design-Build/Best-Value",
+                            "CM/GC",
+                            "Progressive Design-Build",
+                        ]
+                        method_scores = {ms.get("method", ""): float(ms.get("score", 0) or 0) for ms in multi_method_data.get("method_scores", [])}
+                        max_score = max(method_scores.values()) if method_scores else 1.0
 
-                    # --- Missing Info Notice ---
-                    if missing:
-                        section_map = {
-                            "A": "Project Scope", "B": "Schedule",
-                            "C": "Innovation", "D": "Quality",
-                            "E": "Cost", "F": "Staffing",
+                        # Build section-level dominant profile (same scoring convention used in backend)
+                        section_ratings = {"A": [], "B": [], "C": [], "D": [], "E": [], "F": []}
+                        for rr in ratings:
+                            qid = rr.get("question_id", "")
+                            sel = rr.get("selected_rating", "B").upper()
+                            if qid and qid[0] in section_ratings:
+                                section_ratings[qid[0]].append(sel)
+
+                        section_dominant = {}
+                        rating_to_num = {"A": 1, "B": 2, "C": 3}
+                        for sec, vals in section_ratings.items():
+                            if not vals:
+                                section_dominant[sec] = "B"
+                            else:
+                                avg = sum(rating_to_num.get(v, 2) for v in vals) / len(vals)
+                                if avg <= 1.5:
+                                    section_dominant[sec] = "A"
+                                elif avg <= 2.5:
+                                    section_dominant[sec] = "B"
+                                else:
+                                    section_dominant[sec] = "C"
+
+                        affinity = {
+                            "A": {
+                                "Design-Bid-Build": {"A": 1.0, "B": 0.6, "C": 0.1},
+                                "Design-Sequencing": {"A": 0.8, "B": 0.6, "C": 0.2},
+                                "Design-Build/Low-Bid": {"A": 0.3, "B": 0.5, "C": 0.7},
+                                "Design-Build/Best-Value": {"A": 0.2, "B": 0.5, "C": 0.8},
+                                "CM/GC": {"A": 0.3, "B": 0.6, "C": 0.9},
+                                "Progressive Design-Build": {"A": 0.1, "B": 0.4, "C": 0.9},
+                            },
+                            "B": {
+                                "Design-Bid-Build": {"A": 0.9, "B": 0.5, "C": 0.1},
+                                "Design-Sequencing": {"A": 0.7, "B": 0.5, "C": 0.3},
+                                "Design-Build/Low-Bid": {"A": 0.3, "B": 0.6, "C": 0.8},
+                                "Design-Build/Best-Value": {"A": 0.3, "B": 0.6, "C": 0.8},
+                                "CM/GC": {"A": 0.4, "B": 0.6, "C": 0.8},
+                                "Progressive Design-Build": {"A": 0.3, "B": 0.5, "C": 0.8},
+                            },
+                            "C": {
+                                "Design-Bid-Build": {"A": 0.9, "B": 0.5, "C": 0.1},
+                                "Design-Sequencing": {"A": 0.7, "B": 0.5, "C": 0.2},
+                                "Design-Build/Low-Bid": {"A": 0.4, "B": 0.5, "C": 0.6},
+                                "Design-Build/Best-Value": {"A": 0.2, "B": 0.5, "C": 0.9},
+                                "CM/GC": {"A": 0.3, "B": 0.6, "C": 0.8},
+                                "Progressive Design-Build": {"A": 0.2, "B": 0.5, "C": 0.9},
+                            },
+                            "D": {
+                                "Design-Bid-Build": {"A": 0.8, "B": 0.5, "C": 0.2},
+                                "Design-Sequencing": {"A": 0.7, "B": 0.5, "C": 0.3},
+                                "Design-Build/Low-Bid": {"A": 0.5, "B": 0.5, "C": 0.5},
+                                "Design-Build/Best-Value": {"A": 0.3, "B": 0.5, "C": 0.8},
+                                "CM/GC": {"A": 0.3, "B": 0.6, "C": 0.8},
+                                "Progressive Design-Build": {"A": 0.3, "B": 0.5, "C": 0.8},
+                            },
+                            "E": {
+                                "Design-Bid-Build": {"A": 0.8, "B": 0.6, "C": 0.3},
+                                "Design-Sequencing": {"A": 0.7, "B": 0.5, "C": 0.3},
+                                "Design-Build/Low-Bid": {"A": 0.3, "B": 0.5, "C": 0.7},
+                                "Design-Build/Best-Value": {"A": 0.2, "B": 0.5, "C": 0.7},
+                                "CM/GC": {"A": 0.4, "B": 0.6, "C": 0.7},
+                                "Progressive Design-Build": {"A": 0.2, "B": 0.5, "C": 0.8},
+                            },
+                            "F": {
+                                "Design-Bid-Build": {"A": 0.8, "B": 0.5, "C": 0.1},
+                                "Design-Sequencing": {"A": 0.7, "B": 0.5, "C": 0.2},
+                                "Design-Build/Low-Bid": {"A": 0.4, "B": 0.5, "C": 0.6},
+                                "Design-Build/Best-Value": {"A": 0.3, "B": 0.5, "C": 0.7},
+                                "CM/GC": {"A": 0.5, "B": 0.6, "C": 0.7},
+                                "Progressive Design-Build": {"A": 0.3, "B": 0.5, "C": 0.8},
+                            },
                         }
-                        section_counts = {}
-                        for qid in missing:
-                            sec = section_map.get(qid[0], qid[0])
-                            section_counts[sec] = section_counts.get(sec, 0) + 1
-                        grouped = ", ".join(f"{name} ({count})" for name, count in section_counts.items())
 
-                        st.markdown(f"""
-                        <div style="
-                            background: #fffbeb;
-                            border-left: 4px solid #f59e0b;
-                            border-radius: 0 8px 8px 0;
-                            padding: 16px 20px;
-                            margin: 0 0 16px 0;
-                        ">
-                            <p style="color: #92400e; margin: 0; font-weight: 600;">
-                                Some project details were not found in the document.</p>
-                            <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
-                                Providing more detail in these sections would improve accuracy: {grouped}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.subheader(f"Alternative Delivery Nomination Fact Sheet: {project_name}")
+                        
+                        template_rows = []
+                        for q in RUBRIC_QUESTIONS:
+                            qid = q["id"]
+                            sec = qid[0]
+                            robj = rating_index.get(qid, {})
+                            sel_rating = robj.get("selected_rating", "").upper()
+                            
+                            # 1. Question Header Row
+                            q_row = {
+                                "ID": qid,
+                                "Text": q["question"],
+                            }
+                            # Set methods to empty for header
+                            for m in method_labels: q_row[m] = ""
+                            q_row["Selected"] = ""
+                            template_rows.append(q_row)
 
-                    # --- Evaluation Summary by Section ---
-                    with st.expander("Evaluation Summary by Section", expanded=True):
-                        section_names = {
-                            "A": "Project Scope & Characteristics",
-                            "B": "Schedule Issues",
-                            "C": "Opportunity for Innovation",
-                            "D": "Quality Enhancement",
-                            "E": "Cost Issues",
-                            "F": "Staffing Issues",
-                        }
-                        from src.project_delivery_evaluator import SECTION_WEIGHTS
-                        sec_data = []
-                        for sec, name in section_names.items():
-                            avg = recommendation.get("section_scores", {}).get(sec, 2.0)
-                            weight = SECTION_WEIGHTS[sec]
-                            sec_data.append({
-                                "Section": f"{sec}: {name}",
-                                "Avg Score": f"{avg:.2f}",
-                                "Weight": f"{weight:.0%}",
-                                "Weighted": f"{avg * weight:.3f}",
-                            })
-                        st.dataframe(pd.DataFrame(sec_data), use_container_width=True, hide_index=True)
+                            # 2. Option Rows (A, B, C)
+                            for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
+                                opt_text = q.get(opt_label, "")
+                                if not opt_text: continue
+                                
+                                o_row = {
+                                    "ID": "",
+                                    "Text": f"({opt_key}) {opt_text}",
+                                }
+                                # Add points in brackets for THIS SPECIFIC option (simulating the 'extension' sheet)
+                                if len(method_labels) == 1:
+                                    method = method_labels[0]
+                                    opt_fit = affinity.get(sec, {}).get(method, {}).get(opt_key, 0.5)
+                                    o_row["Text"] += f" [{opt_fit * 10.0:.1f} pts]"
+                                
+                                for method in method_labels:
+                                    o_row[method] = "✓" if opt_key == sel_rating else ""
+                                
+                                template_rows.append(o_row)
+                            
+                            # Spacer for visual separation in UI
+                            template_rows.append({"ID": "", "Text": "", "Selected": ""})
 
-                    # --- Evaluation Rules Reference ---
-                    with st.expander("Evaluation Rules Reference"):
-                        from src.project_delivery_evaluator import OVERRIDE_RULES
-                        st.markdown("""
-                        <p style="color: #475569; font-size: 0.9rem; margin-bottom: 12px;">
-                            The following rules are applied after scoring to ensure the recommendation
-                            aligns with Caltrans delivery method requirements and project constraints.</p>
-                        """, unsafe_allow_html=True)
-                        for rule in OVERRIDE_RULES:
+                        st.dataframe(pd.DataFrame(template_rows), use_container_width=True, hide_index=True)
+                        if missing:
+                            st.info(f"Missing information flagged for {len(missing)} question(s). See V2 workbook method sheets for detail.")
+                        st.caption("V2 UI mirrors the template questionnaire. Detailed confidence and suitability elaboration are provided in the downloaded workbook (separate method sheets).")
+
+                    else:
+                        # --- Override Notes (if rules fired) ---
+                        override_reasons = recommendation.get("override_reasons", [])
+                        if override_reasons:
+                            reasons_html = "".join(f"<li style='margin-bottom: 4px;'>{r}</li>" for r in override_reasons)
                             st.markdown(f"""
                             <div style="
-                                border: 1px solid #e2e8f0;
-                                border-radius: 8px;
-                                padding: 12px 16px;
-                                margin-bottom: 8px;
+                                background: #eff6ff;
+                                border-left: 4px solid #3b82f6;
+                                border-radius: 0 8px 8px 0;
+                                padding: 16px 20px;
+                                margin: 0 0 16px 0;
                             ">
-                                <p style="margin: 0 0 4px 0; font-weight: 600; color: #1F4E79; font-size: 0.9rem;">
-                                    {rule['id']}: {rule['name']}</p>
-                                <p style="margin: 0 0 4px 0; color: #64748b; font-size: 0.8rem;">
-                                    Trigger: <code>{rule['trigger']}</code></p>
-                                <p style="margin: 0; color: #475569; font-size: 0.85rem;">
-                                    {rule['description']}</p>
+                                <p style="color: #1e40af; margin: 0 0 8px 0; font-weight: 600;">
+                                    Evaluation adjusted based on project characteristics:</p>
+                                <ul style="color: #1e3a5f; margin: 0; padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
+                                    {reasons_html}
+                                </ul>
                             </div>
                             """, unsafe_allow_html=True)
 
-                    # --- Ratings Dataframe ---
-                    st.subheader("Detailed Question Ratings")
-                    df = pd.DataFrame(ratings)
-                    display_cols = {
-                        "question_id": "Q#",
-                        "question_text": "Question",
-                        "selected_rating": "Rating",
-                        "extracted_evidence": "Evidence",
-                        "confidence": "Confidence",
-                        "missing_info": "Missing",
-                    }
-                    df = df.rename(columns={k: v for k, v in display_cols.items() if k in df.columns})
-                    # Round confidence
-                    if "Confidence" in df.columns:
-                        df["Confidence"] = df["Confidence"].apply(lambda x: round(float(x), 2) if x else 0)
-                    if "Missing" in df.columns:
-                        df["Missing"] = df["Missing"].apply(lambda x: "Yes" if x else "No")
+                        # --- Close Match Notice ---
+                        if recommendation.get("is_borderline"):
+                            st.markdown(f"""
+                            <div style="
+                                background: #fffbeb;
+                                border-left: 4px solid #f59e0b;
+                                border-radius: 0 8px 8px 0;
+                                padding: 16px 20px;
+                                margin: 0 0 16px 0;
+                            ">
+                                <p style="color: #92400e; margin: 0; font-weight: 600;">
+                                    This is a close match between {rec_method} and {runner_up}.</p>
+                                <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
+                                    Review the comparison below to confirm the best fit for this project.</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            with st.expander("View Detailed Comparison"):
+                                st.markdown(recommendation.get("comparison_text", ""))
 
-                    def _style_rating(val):
-                        if val == "A":
-                            return "background-color: #dcfce7; color: #166534; font-weight: bold;"
-                        elif val == "B":
-                            return "background-color: #fef9c3; color: #854d0e; font-weight: bold;"
-                        elif val == "C":
-                            return "background-color: #fee2e2; color: #991b1b; font-weight: bold;"
-                        return ""
+                        # === MULTI-METHOD COMPARISON TABLE (Req 3.1) ===
+                        with st.expander("All Delivery Methods — Suitability Ranking", expanded=True):
+                            method_scores = multi_method_data.get("method_scores", [])
+                            if method_scores:
+                                mm_rows = []
+                                for ms in method_scores:
+                                    status = "🚫 Blocked" if ms.get("blocked") else "✅ Eligible"
+                                    mm_rows.append({
+                                        "Rank": ms.get("rank", ""),
+                                        "Method": ms.get("method", ""),
+                                        "Score": f"{ms.get('score', 0):.4f}",
+                                        "Status": status,
+                                        "Key Factors": " | ".join(ms.get("key_factors", [])[:3]),
+                                    })
+                                mm_df = pd.DataFrame(mm_rows)
 
-                    def _style_confidence(val):
-                        try:
-                            v = float(val)
-                            if v >= 0.7:
-                                return "color: #22c55e; font-weight: bold;"
-                            elif v >= 0.4:
-                                return "color: #f59e0b; font-weight: bold;"
-                            else:
-                                return "color: #ef4444; font-weight: bold;"
-                        except (ValueError, TypeError):
+                                def _style_method_row(row):
+                                    if "Blocked" in str(row.get("Status", "")):
+                                        return ["color: #9ca3af; font-style: italic;"] * len(row)
+                                    rank = row.get("Rank", 99)
+                                    if rank == 1:
+                                        return ["background-color: #dcfce7; color: #166534; font-weight: bold;"] * len(row)
+                                    elif rank <= 3:
+                                        return ["background-color: #fef9c3; color: #854d0e;"] * len(row)
+                                    return [""] * len(row)
+
+                                styled_mm = mm_df.style.apply(_style_method_row, axis=1)
+                                st.dataframe(styled_mm, use_container_width=True, hide_index=True)
+
+                                # Pros/Cons for top 3
+                                st.markdown("**Top Methods — Pros & Cons:**")
+                                top3 = [ms for ms in method_scores if not ms.get("blocked")][:3]
+                                for ms in top3:
+                                    pros = " • ".join(ms.get("pros", [])[:3])
+                                    cons = " • ".join(ms.get("cons", [])[:3])
+                                    st.markdown(f"""
+                                    <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 8px;">
+                                        <p style="margin: 0 0 4px 0; font-weight: 600; color: #1F4E79;">{ms['method']}</p>
+                                        <p style="margin: 0; font-size: 0.85rem;"><span style="color: #166534;">✅ {pros}</span></p>
+                                        <p style="margin: 0; font-size: 0.85rem;"><span style="color: #991b1b;">⚠ {cons}</span></p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
+                                bc = multi_method_data.get("borderline_comparison")
+                                if bc and bc.get("is_close"):
+                                    st.warning(f"⚠ Top methods are within {bc['score_gap']:.4f} of each other — recommend detailed project-specific comparison.")
+
+                        # === VALIDATION MODE (Req 3.3 / 3.7) — Only for HQ Reviewer role ===
+                        if pde_role == "HQ Reviewer (Validation)" and validation_data:
+                            with st.expander("🔍 Validation Report — AI vs District Ratings", expanded=True):
+                                summary = validation_data.get("summary", {})
+                                rate = summary.get("agreement_rate", 0)
+                                rate_color = "#166534" if rate >= 80 else ("#b45309" if rate >= 60 else "#991b1b")
+                                dev = validation_data.get("deviation_impact", {})
+
+                                st.markdown(f"""
+                                <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+                                    <div style="flex: 1; min-width: 180px; background: #f0f9ff; border-radius: 10px; padding: 16px; text-align: center;">
+                                        <p style="margin: 0; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Agreement Rate</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 1.8rem; font-weight: 700; color: {rate_color};">{rate}%</p>
+                                    </div>
+                                    <div style="flex: 1; min-width: 180px; background: #f0f9ff; border-radius: 10px; padding: 16px; text-align: center;">
+                                        <p style="margin: 0; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Matches</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 1.8rem; font-weight: 700; color: #166534;">{summary.get('matches', 0)}</p>
+                                    </div>
+                                    <div style="flex: 1; min-width: 180px; background: #fffbeb; border-radius: 10px; padding: 16px; text-align: center;">
+                                        <p style="margin: 0; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Minor Mismatches</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 1.8rem; font-weight: 700; color: #b45309;">{summary.get('minor_mismatches', 0)}</p>
+                                    </div>
+                                    <div style="flex: 1; min-width: 180px; background: #fef2f2; border-radius: 10px; padding: 16px; text-align: center;">
+                                        <p style="margin: 0; color: #64748b; font-size: 0.8rem; text-transform: uppercase;">Major Mismatches</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 1.8rem; font-weight: 700; color: #991b1b;">{summary.get('major_mismatches', 0)}</p>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                                # Deviation impact
+                                changed = dev.get("recommendation_changed", False)
+                                if changed:
+                                    st.error(f"⚠ Recommendation would change: **{dev.get('ai_method', '')}** (AI) → **{dev.get('user_method', '')}** (User Ratings)")
+                                else:
+                                    st.success(f"✅ Recommendation stays **{dev.get('ai_method', '')}** regardless of rating source")
+
+                                # Detail table
+                                comparisons = validation_data.get("comparisons", [])
+                                if comparisons:
+                                    val_rows = []
+                                    for comp in comparisons:
+                                        sev = comp.get("severity", "match")
+                                        sev_display = "✅" if sev == "match" else ("⚠" if sev == "minor_mismatch" else "🔴")
+                                        val_rows.append({
+                                            "Q#": comp.get("question_id", ""),
+                                            "AI": comp.get("ai_rating", ""),
+                                            "User": comp.get("user_rating", ""),
+                                            "Match": sev_display,
+                                            "Evidence": comp.get("ai_evidence", "")[:100],
+                                            "Confidence": comp.get("ai_confidence", 0),
+                                        })
+                                    val_df = pd.DataFrame(val_rows)
+                                    st.dataframe(val_df, use_container_width=True, hide_index=True)
+
+                        # --- Missing Info Notice ---
+                        if missing:
+                            section_map = {
+                                "A": "Project Scope", "B": "Schedule",
+                                "C": "Innovation", "D": "Quality",
+                                "E": "Cost", "F": "Staffing",
+                            }
+                            section_counts = {}
+                            for qid in missing:
+                                sec = section_map.get(qid[0], qid[0])
+                                section_counts[sec] = section_counts.get(sec, 0) + 1
+                            grouped = ", ".join(f"{name} ({count})" for name, count in section_counts.items())
+
+                            st.markdown(f"""
+                            <div style="
+                                background: #fffbeb;
+                                border-left: 4px solid #f59e0b;
+                                border-radius: 0 8px 8px 0;
+                                padding: 16px 20px;
+                                margin: 0 0 16px 0;
+                            ">
+                                <p style="color: #92400e; margin: 0; font-weight: 600;">
+                                    Some project details were not found in the document.</p>
+                                <p style="color: #78350f; margin: 6px 0 0 0; font-size: 0.9rem;">
+                                    Providing more detail in these sections would improve accuracy: {grouped}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                        # --- Evaluation Summary by Section ---
+                        with st.expander("Evaluation Summary by Section", expanded=pde_role == "District Team (Internal)"):
+                            section_names = {
+                                "A": "Project Scope & Characteristics",
+                                "B": "Schedule Issues",
+                                "C": "Opportunity for Innovation",
+                                "D": "Quality Enhancement",
+                                "E": "Cost Issues",
+                                "F": "Staffing Issues",
+                            }
+                            from src.project_delivery_evaluator import SECTION_WEIGHTS
+                            sec_data = []
+                            for sec, name in section_names.items():
+                                avg = recommendation.get("section_scores", {}).get(sec, 2.0)
+                                weight = SECTION_WEIGHTS[sec]
+                                sec_data.append({
+                                    "Section": f"{sec}: {name}",
+                                    "Avg Score": f"{avg:.2f}",
+                                    "Weight": f"{weight:.0%}",
+                                    "Weighted": f"{avg * weight:.3f}",
+                                })
+                            st.dataframe(pd.DataFrame(sec_data), use_container_width=True, hide_index=True)
+
+                        # --- Evaluation Rules Reference ---
+                        with st.expander("Evaluation Rules Reference"):
+                            from src.project_delivery_evaluator import OVERRIDE_RULES
+                            st.markdown("""
+                            <p style="color: #475569; font-size: 0.9rem; margin-bottom: 12px;">
+                                The following rules are applied after scoring to ensure the recommendation
+                                aligns with Caltrans delivery method requirements and project constraints.</p>
+                            """, unsafe_allow_html=True)
+                            for rule in OVERRIDE_RULES:
+                                st.markdown(f"""
+                                <div style="
+                                    border: 1px solid #e2e8f0;
+                                    border-radius: 8px;
+                                    padding: 12px 16px;
+                                    margin-bottom: 8px;
+                                ">
+                                    <p style="margin: 0 0 4px 0; font-weight: 600; color: #1F4E79; font-size: 0.9rem;">
+                                        {rule['id']}: {rule['name']}</p>
+                                    <p style="margin: 0 0 4px 0; color: #64748b; font-size: 0.8rem;">
+                                        Trigger: <code>{rule['trigger']}</code></p>
+                                    <p style="margin: 0; color: #475569; font-size: 0.85rem;">
+                                        {rule['description']}</p>
+                                </div>
+                                """, unsafe_allow_html=True)
+
+                        # --- Ratings Dataframe ---
+                        st.subheader("Detailed Question Ratings")
+                        df = pd.DataFrame(ratings)
+                        display_cols = {
+                            "question_id": "Q#",
+                            "question_text": "Question",
+                            "selected_rating": "Rating",
+                            "extracted_evidence": "Evidence",
+                            "confidence": "Confidence",
+                            "missing_info": "Missing",
+                        }
+                        df = df.rename(columns={k: v for k, v in display_cols.items() if k in df.columns})
+                        # Round confidence
+                        if "Confidence" in df.columns:
+                            df["Confidence"] = df["Confidence"].apply(lambda x: round(float(x), 2) if x else 0)
+                        if "Missing" in df.columns:
+                            df["Missing"] = df["Missing"].apply(lambda x: "Yes" if x else "No")
+
+                        def _style_rating(val):
+                            if val == "A":
+                                return "background-color: #dcfce7; color: #166534; font-weight: bold;"
+                            elif val == "B":
+                                return "background-color: #fef9c3; color: #854d0e; font-weight: bold;"
+                            elif val == "C":
+                                return "background-color: #fee2e2; color: #991b1b; font-weight: bold;"
                             return ""
 
-                    show_cols = [c for c in ["Q#", "Question", "Rating", "Evidence", "Confidence", "Missing"] if c in df.columns]
-                    styled_df = df[show_cols].style.map(_style_rating, subset=["Rating"]).map(_style_confidence, subset=["Confidence"])
-                    st.dataframe(styled_df, use_container_width=True, hide_index=True)
+                        def _style_confidence(val):
+                            try:
+                                v = float(val)
+                                if v >= 0.7:
+                                    return "color: #22c55e; font-weight: bold;"
+                                elif v >= 0.4:
+                                    return "color: #f59e0b; font-weight: bold;"
+                                else:
+                                    return "color: #ef4444; font-weight: bold;"
+                            except (ValueError, TypeError):
+                                return ""
 
-                    # --- District Comparison (if pre-filled ratings exist) ---
-                    if existing_ratings:
-                        with st.expander("District vs AI Rating Comparison"):
-                            comp_data = []
-                            for r in ratings:
-                                qid = r.get("question_id", "")
-                                if qid in existing_ratings:
-                                    ai_rating = r.get("selected_rating", "")
-                                    district_rating = existing_ratings[qid]
-                                    comp_data.append({
-                                        "Q#": qid,
-                                        "District Rating": district_rating,
-                                        "AI Rating": ai_rating,
-                                        "Match": "Yes" if district_rating == ai_rating else "No",
-                                    })
-                            if comp_data:
-                                comp_df = pd.DataFrame(comp_data)
-                                matches = sum(1 for c in comp_data if c["Match"] == "Yes")
-                                st.info(f"Agreement: {matches}/{len(comp_data)} questions ({matches/len(comp_data)*100:.0f}%)")
-                                st.dataframe(comp_df, use_container_width=True, hide_index=True)
+                        show_cols = [c for c in ["Q#", "Question", "Rating", "Evidence", "Confidence", "Missing"] if c in df.columns]
+                        styled_df = df[show_cols].style.map(_style_rating, subset=["Rating"]).map(_style_confidence, subset=["Confidence"])
+                        st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+                        # --- District Comparison (if pre-filled ratings exist) ---
+                        if existing_ratings and pde_role == "District Team (Internal)":
+                            with st.expander("District vs AI Rating Comparison"):
+                                comp_data = []
+                                for r in ratings:
+                                    qid = r.get("question_id", "")
+                                    if qid in existing_ratings:
+                                        ai_rating = r.get("selected_rating", "")
+                                        district_rating = existing_ratings[qid]
+                                        comp_data.append({
+                                            "Q#": qid,
+                                            "District Rating": district_rating,
+                                            "AI Rating": ai_rating,
+                                            "Match": "Yes" if district_rating == ai_rating else "No",
+                                        })
+                                if comp_data:
+                                    comp_df = pd.DataFrame(comp_data)
+                                    matches = sum(1 for c in comp_data if c["Match"] == "Yes")
+                                    st.info(f"Agreement: {matches}/{len(comp_data)} questions ({matches/len(comp_data)*100:.0f}%)")
+                                    st.dataframe(comp_df, use_container_width=True, hide_index=True)
 
                     # --- Download & Reset ---
                     # Cache Excel bytes in session state to survive reruns
-                    if "pde_excel_bytes" not in st.session_state:
-                        excel_buf = build_evaluation_excel(eval_result, recommendation, project_name)
-                        st.session_state.pde_excel_bytes = excel_buf.getvalue()
-                        st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx"
+                    excel_cache_mode = st.session_state.get("pde_excel_mode")
+                    if "pde_excel_bytes" not in st.session_state or excel_cache_mode != pde_report_mode:
+                        if pde_report_mode == "Template Summary + Method Sheets (V2)":
+                            template_path = os.getenv(
+                                "PDE_V2_TEMPLATE_PATH",
+                                "templates/pde_v2_template.xls",
+                            )
+                            try:
+                                excel_buf = build_evaluation_excel_v2(
+                                    eval_result,
+                                    recommendation,
+                                    project_name,
+                                    template_path=template_path,
+                                    multi_method_data=multi_method_data,
+                                )
+                                st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation_v2.xlsx"
+                            except Exception as v2_err:
+                                st.warning(
+                                    f"V2 template export failed ({v2_err}). Falling back to V1 export. "
+                                    "Set PDE_V2_TEMPLATE_PATH to a valid .xls/.xlsx template path."
+                                )
+                                excel_buf = build_evaluation_excel(
+                                    eval_result, recommendation, project_name,
+                                    multi_method_data=multi_method_data,
+                                    validation_data=validation_data,
+                                )
+                                st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx"
+                            except Exception as v1_err:
+                                st.error(f"Critical error during Excel generation: {v1_err}")
+                                excel_buf = None
+
+                        if excel_buf:
+                            st.session_state.pde_excel_bytes = excel_buf.getvalue()
+                            st.session_state.pde_excel_mode = pde_report_mode
+                        else:
+                            st.session_state.pde_excel_bytes = None
+                            st.session_state.pde_excel_mode = None
 
                     dl_col, reset_col, _ = st.columns([1, 1, 3])
                     with dl_col:
-                        st.download_button(
-                            label="Download (.xlsx)",
-                            data=st.session_state.pde_excel_bytes,
-                            file_name=st.session_state.pde_excel_filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key="pde_download",
-                        )
+                        if st.session_state.get("pde_excel_bytes"):
+                            st.download_button(
+                                label="Download (.xlsx)",
+                                data=st.session_state.pde_excel_bytes,
+                                file_name=st.session_state.pde_excel_filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key="pde_download",
+                            )
+                        else:
+                            st.warning("Excel report is not available for download.")
                     with reset_col:
                         if st.button("Reset", key="pde_reset"):
                             for key in [k for k in list(st.session_state.keys()) if k.startswith("pde_")]:

@@ -1,0 +1,26 @@
+bundle:
+  name: caltrans-pde-app
+
+workspace:
+  root_path: /Workspace/Shared/apps/${bundle.name}/${bundle.target}
+
+sync:
+  paths:
+    - .
+  exclude:
+    - build/
+    - scripts/
+    - README.md
+    - .gitignore
+    - databricks.yml
+
+resources:
+  apps:
+    caltrans_pde_app:
+      name: caltrans-pde-app
+      description: Caltrans project delivery evaluator app for Databricks Apps.
+      source_code_path: .
+
+targets:
+  default:
+    default: true

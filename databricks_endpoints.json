@@ -1,0 +1,434 @@
+[
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gemma-3-12b",
+          "foundation_model": {
+            "description": "GPT-5.4 is a general purpose large language model with reasoning capabilities developed by OpenAI. It delivers improved performance on complex tasks with enhanced accuracy and more deliberate scaffolded reasoning. This model supports multimodal inputs and features a 400K total token context window with 128K maximum output tokens. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.4",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gemma-3-12b",
+            "name": "system.ai.databricks-gemma-3-12b"
+          },
+          "name": "databricks-gemma-3-12b"
+        }
+      ]
+    },
+    "creation_timestamp": 1772668800000,
+    "last_updated_timestamp": 1772668800000,
+    "name": "databricks-gemma-3-12b",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gemma-3-12b-mini",
+          "foundation_model": {
+            "description": "GPT-5.4 Mini is a cost-optimized large language model developed by OpenAI. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.4 Mini",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gemma-3-12b-mini",
+            "name": "system.ai.databricks-gemma-3-12b-mini"
+          },
+          "name": "databricks-gemma-3-12b-mini"
+        }
+      ]
+    },
+    "creation_timestamp": 1773705600000,
+    "last_updated_timestamp": 1773705600000,
+    "name": "databricks-gemma-3-12b-mini",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gemma-3-12b-nano",
+          "foundation_model": {
+            "description": "GPT-5.4 Nano is a lightweight, cost-optimized large language model developed by OpenAI. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.4 Nano",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gemma-3-12b-nano",
+            "name": "system.ai.databricks-gemma-3-12b-nano"
+          },
+          "name": "databricks-gemma-3-12b-nano"
+        }
+      ]
+    },
+    "creation_timestamp": 1773705600000,
+    "last_updated_timestamp": 1773705600000,
+    "name": "databricks-gemma-3-12b-nano",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gpt-5-2",
+          "foundation_model": {
+            "description": "GPT-5.2 is a general purpose large language model with reasoning capabilities developed by OpenAI. This model builds directly upon GPT-5.1, offering higher accuracy, improved token efficiency on medium-to-complex tasks, and more deliberate scaffolded reasoning. This model excels at structured extraction, multi-step workflows, and multimodal tasks. It supports multimodal inputs and features a 400K total token context window with 128K maximum output tokens. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.2",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gpt-5-2",
+            "name": "system.ai.databricks-gpt-5-2"
+          },
+          "name": "databricks-gpt-5-2"
+        }
+      ]
+    },
+    "creation_timestamp": 1765238400000,
+    "last_updated_timestamp": 1765238400000,
+    "name": "databricks-gpt-5-2",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.gpt-oss-120b",
+          "foundation_model": {
+            "description": "GPT OSS 120B is a state-of-the-art, reasoning model with chain-of-thought and adjustable reasoning effort levels built and trained by OpenAI. It is OpenAI's flagship open-weight model that features a 128K token context window. The model is built for high-quality reasoning tasks.",
+            "display_name": "GPT OSS 120B",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#openai-gpt-120b",
+            "name": "system.ai.gpt-oss-120b"
+          },
+          "name": "databricks-gpt-oss-120b"
+        }
+      ]
+    },
+    "creation_timestamp": 1754179200000,
+    "last_updated_timestamp": 1754179200000,
+    "name": "databricks-gpt-oss-120b",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gpt-5-3-codex",
+          "foundation_model": {
+            "description": "GPT-5.3 Codex is OpenAI's advanced code-specialized large language model. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.3 Codex",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gpt-5-3-codex",
+            "name": "system.ai.databricks-gpt-5-3-codex"
+          },
+          "name": "databricks-gpt-5-3-codex"
+        }
+      ]
+    },
+    "creation_timestamp": 1771891200000,
+    "last_updated_timestamp": 1771891200000,
+    "name": "databricks-gpt-5-3-codex",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gpt-5-2-codex",
+          "foundation_model": {
+            "description": "GPT-5.2 Codex is OpenAI's most advanced code-specialized large language model. Built on GPT-5.2 architecture with enhanced coding capabilities, it excels at code generation, refactoring, debugging, and software engineering tasks. The model supports multimodal inputs and features a 400K total token context window with 128K maximum output tokens. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.2 Codex",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gpt-5-2-codex",
+            "name": "system.ai.databricks-gpt-5-2-codex"
+          },
+          "name": "databricks-gpt-5-2-codex"
+        }
+      ]
+    },
+    "creation_timestamp": 1767139200000,
+    "last_updated_timestamp": 1767139200000,
+    "name": "databricks-gpt-5-2-codex",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.gpt-oss-20b",
+          "foundation_model": {
+            "description": "GPT OSS 20B is a state-of-the-art, lightweight reasoning model built and trained by OpenAI. This model also has a 128K token context window and excels at real-time copilots and batch inference tasks.",
+            "display_name": "GPT OSS 20B",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#openai-gpt-20b",
+            "name": "system.ai.gpt-oss-20b"
+          },
+          "name": "databricks-gpt-oss-20b"
+        }
+      ]
+    },
+    "creation_timestamp": 1754179200000,
+    "last_updated_timestamp": 1754179200000,
+    "name": "databricks-gpt-oss-20b",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.qwen3-next-80b-a3b-instruct",
+          "foundation_model": {
+            "description": "Qwen3-Next-80B-A3B-Instruct is a highly efficient large language model optimized for instruction-following tasks built and trained by Alibaba Cloud. This model is designed to handle ultra-long contexts and excels at multi-step workflows, retrieval-augmented generation, and enterprise applications that require deterministic outputs at high throughput. This endpoint is hosted by Databricks.",
+            "display_name": "Qwen3 Next Instruct",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#qwen3-next-80b-a3b-instruct",
+            "name": "system.ai.qwen3-next-80b-a3b-instruct"
+          },
+          "name": "databricks-qwen3-next-80b-a3b-instruct"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-qwen3-next-80b-a3b-instruct",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.llama-4-maverick",
+          "foundation_model": {
+            "description": "Llama 4 Maverick is a state-of-the-art mixture of experts (MoE) language model trained and released by Meta. The model has 17B active parameters, 128 experts, and 400 billion total parameters. The model supports a context length of 128K tokens. The model is optimized for multilingual dialogue use cases, supporting 12 languages, and is aligned with human preferences for helpfulness and safety. It is not intended for use in languages other than English. Llama 4 is licensed under the Meta Llama 4 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved. Customers are responsible for ensuring compliance with applicable model licenses.",
+            "display_name": "Llama 4 Maverick",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#meta-llama-4-maverick",
+            "name": "system.ai.llama-4-maverick"
+          },
+          "name": "databricks-llama-4-maverick"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-llama-4-maverick",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.gemma-3-12b-it",
+          "foundation_model": {
+            "description": "Gemma 3 12B is a state-of-the-art multimodal language model built and trained by Google. The model supports a context length of 128K tokens and can analyze images and text. With support for over 140 languages and optimized for dialogue use cases, Gemma 3 12B is aligned with human preferences for helpfulness and safety. This endpoint is hosted by Databricks.",
+            "display_name": "Gemma 3 12B",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#google-gemma-3-12b",
+            "name": "system.ai.gemma-3-12b-it"
+          },
+          "name": "databricks-gemma-3-12b"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-gemma-3-12b",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.gte_large_en_v1_5",
+          "foundation_model": {
+            "description": "General text embeddings (GTE) can map any text to a low-dimensional dense vector which can be used for tasks like retrieval, classification, clustering, or semantic search. And it also can be used in vector databases for LLMs.",
+            "display_name": "GTE Large (En)",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gte-large",
+            "name": "system.ai.gte_large_en_v1_5"
+          },
+          "name": "databricks-gte-large-en"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-gte-large-en",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/embeddings"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.bge_large_en_v1_5",
+          "foundation_model": {
+            "description": "BAAI general embedding (BGE) can map any text to a low-dimensional dense vector which can be used for tasks like retrieval, classification, clustering, or semantic search. And it also can be used in vector databases for LLMs.",
+            "display_name": "BGE Large (En)",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#bge-large",
+            "name": "system.ai.bge_large_en_v1_5"
+          },
+          "name": "databricks-bge-large-en"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-bge-large-en",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/embeddings"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.databricks-gpt-5-1",
+          "foundation_model": {
+            "description": "GPT-5.1 is a general purpose large language model with reasoning capabilities developed by OpenAI. This model features both Instant and Thinking modes for fast conversation or deep reasoning, automatically adjusting for simple or complex tasks. The model excels at content creation, tutoring, technical support, and coding, with less reliance on strict prompt engineering than prior versions. It supports multimodal inputs and features a 128K token context window. This endpoint is hosted by Databricks.",
+            "display_name": "GPT-5.1",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#gpt-5-1",
+            "name": "system.ai.databricks-gpt-5-1"
+          },
+          "name": "databricks-gpt-5-1"
+        }
+      ]
+    },
+    "creation_timestamp": 1762992000000,
+    "last_updated_timestamp": 1762992000000,
+    "name": "databricks-gpt-5-1",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.meta_llama_v3_1_8b_instruct",
+          "foundation_model": {
+            "description": "Llama 3.1 is a state-of-the-art 8B parameter dense language model trained and released by Meta. The model supports a context length of 128K tokens. The model is optimized for multilingual dialogue use cases and aligned with human preferences for helpfulness and safety. It is not intended for use in languages other than English. Meta Llama 3.1 is licensed under the Meta Llama 3.1 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved. Customers are responsible for ensuring compliance with applicable model licenses.",
+            "display_name": "Meta Llama 3.1 8B Instruct",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#meta-llama-3-8b-instruct",
+            "name": "system.ai.meta_llama_v3_1_8b_instruct"
+          },
+          "name": "databricks-meta-llama-3-1-8b-instruct"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-meta-llama-3-1-8b-instruct",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.llama_v3_3_70b_instruct",
+          "foundation_model": {
+            "description": "Llama 3.3 is a state-of-the-art 70B parameter dense language model trained and released by Meta. The model supports a context length of 128K tokens. The model is optimized for multilingual dialogue use cases and aligned with human preferences for helpfulness and safety. It is not intended for use in languages other than English. Meta Llama 3.3 is licensed under the Meta Llama 3.3 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved. Customers are responsible for ensuring compliance with applicable model licenses.",
+            "display_name": "Meta Llama 3.3 70B Instruct",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#meta-llama-33-70b-instruct",
+            "name": "system.ai.llama_v3_3_70b_instruct"
+          },
+          "name": "databricks-meta-llama-3-3-70b-instruct"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-meta-llama-3-3-70b-instruct",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.qwen3-embedding-0-6b",
+          "foundation_model": {
+            "description": "Qwen3 Embedding is a multilingual text embedding model that can map any text to a low-dimensional dense vector which can be used for tasks like retrieval, classification, clustering, or semantic search. This endpoint is hosted by Databricks.",
+            "display_name": "Qwen3 Embedding 0.6B",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#qwen3-embedding-0-6b",
+            "name": "system.ai.qwen3-embedding-0-6b"
+          },
+          "name": "databricks-qwen3-embedding-0-6b"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-qwen3-embedding-0-6b",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/embeddings"
+  },
+  {
+    "config": {
+      "served_entities": [
+        {
+          "entity_name": "system.ai.meta_llama_v3_1_405b_instruct_fp8",
+          "foundation_model": {
+            "description": "Llama 3.1 is a state-of-the-art 405B parameter dense language model trained and released by Meta. The model supports a context length of 128K tokens. The model is optimized for multilingual dialogue use cases and aligned with human preferences for helpfulness and safety. It is not intended for use in languages other than English. Meta Llama 3.1 is licensed under the Meta Llama 3.1 Community License, Copyright © Meta Platforms, Inc. All Rights Reserved. Customers are responsible for ensuring compliance with applicable model licenses.",
+            "display_name": "Meta Llama 3.1 405B Instruct",
+            "docs": "https://docs.databricks.com/machine-learning/foundation-models/supported-models.html#meta-llama-31-405b-instruct",
+            "name": "system.ai.meta_llama_v3_1_405b_instruct_fp8"
+          },
+          "name": "databricks-meta-llama-3.1-405b-instruct"
+        }
+      ]
+    },
+    "creation_timestamp": 1699610000000,
+    "last_updated_timestamp": 1699610000000,
+    "name": "databricks-meta-llama-3.1-405b-instruct",
+    "state": {
+      "config_update": "NOT_UPDATING",
+      "ready": "READY"
+    },
+    "task": "llm/v1/chat"
+  }
+]

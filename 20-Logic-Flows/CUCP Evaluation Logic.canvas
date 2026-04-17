@@ -1,0 +1,77 @@
+{
+  "nodes": [
+    {
+      "id": "input-sed",
+      "type": "text",
+      "text": "### 📄 Input\nPersonal Narrative of Disadvantage (SED)",
+      "x": 0,
+      "y": 0,
+      "width": 300,
+      "height": 100
+    },
+    {
+      "id": "level-1",
+      "type": "text",
+      "text": "### 🔍 Level 1: Fact Extraction\n**Module:** `src/cucp_reevals.py`\n\nExtracts 'W5' details:\n- Who\n- What\n- Where\n- When\n- Why",
+      "x": 400,
+      "y": -100,
+      "width": 350,
+      "height": 150
+    },
+    {
+      "id": "level-2",
+      "type": "text",
+      "text": "### ⚖️ Level 2: Legal Classification\n**Module:** `src/cucp_reevals.py`\n\nCategorizes facts under 49 CFR §26.67:\n- Education\n- Employment\n- Business context\n- Social barriers",
+      "x": 400,
+      "y": 100,
+      "width": 350,
+      "height": 150
+    },
+    {
+      "id": "level-3",
+      "type": "text",
+      "text": "### ✅ Level 3: Evidentiary Threshold\n**Module:** `src/cucp_reevals.py`\n\nFinal decision (Pass/Fail) based on preponderance of evidence.",
+      "x": 850,
+      "y": 0,
+      "width": 350,
+      "height": 150
+    },
+    {
+      "id": "memory-hitl",
+      "type": "text",
+      "text": "### 🧠 Institutional Memory\n**Module:** `src/memory_manager.py`\n\nCaptures human overrides and updates the `memory_db.json` rulebook.",
+      "x": 850,
+      "y": 200,
+      "width": 350,
+      "height": 150
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "fromNode": "input-sed",
+      "toNode": "level-1"
+    },
+    {
+      "id": "e2",
+      "fromNode": "input-sed",
+      "toNode": "level-2"
+    },
+    {
+      "id": "e3",
+      "fromNode": "level-1",
+      "toNode": "level-3"
+    },
+    {
+      "id": "e4",
+      "fromNode": "level-2",
+      "toNode": "level-3"
+    },
+    {
+      "id": "e5",
+      "fromNode": "level-3",
+      "toNode": "memory-hitl",
+      "label": "Human Override"
+    }
+  ]
+}

@@ -1,21 +1,38 @@
+# Build Exclusions
 .venv/
+.tmpvenv39/
 .env
 __pycache__/
 *.pyc
 .git/
 .gitignore
+.obsidian/
+databricks/
+
+# Data & Knowledge Exclusions
 knowledge/
 brain/
 tmp/
 *.json
 !memory_db.json
+*.xls
+!templates/pde_v2_template.xls
+*.xlsx
+~$*
 
-# Don't include the local SQLite db or any scratch files
+# Local Scratches & Specs
+test_*.py
+IDENTITY_EXPLAINER.md
+CLAUDE.md
+DEPLOYMENT.md
+Project Caltrans MOC.md
+1IO
+
+# Local Database & System
 *.sqlite3
 *.db
 .DS_Store
 
-# Exclude MCP files from Cloud deployment
+# Tooling
 src/mcp_server.py
-start_mcp.sh
 mcp.log

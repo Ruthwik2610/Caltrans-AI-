@@ -1,0 +1,13 @@
+name: caltrans-pde-app
+command: [
+  "streamlit",
+  "run",
+  "app.py",
+  "--server.port",
+  "$DATABRICKS_APP_PORT",
+  "--server.address",
+  "0.0.0.0"
+]
+env:
+  - name: DATABRICKS_MODEL_ENDPOINT
+    value: databricks-meta-llama-3-3-70b-instruct
