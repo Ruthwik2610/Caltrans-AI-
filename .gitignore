@@ -71,3 +71,20 @@ extracted_rubrics.txt
 cloud-run-env.yaml
 cloud-run-env-val.yaml
 cucp_learning_storyline.md
+
+# Obsidian & Local Knowledge Base
+.obsidian/
+Antigravity/
+00-Architecture/
+10-Research/
+20-Logic-Flows/
+30-Institutional-Memory/
+40-Meetings/
+50-Tasks/
+Project Caltrans MOC.md
+
+# Python Env
+.tmpvenv39/
+
+# Office Temp
+~$*

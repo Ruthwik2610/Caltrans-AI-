@@ -28,6 +28,7 @@ from src.project_delivery_evaluator import (
     run_validation_analysis,
     ALL_METHODS,
     RUBRIC_QUESTIONS,
+    METHOD_AFFINITY,
 )
 
 
@@ -79,10 +80,10 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     vAR_AI_application = st.selectbox(
-        "", ["Select Application", "Caltrans"], key="application"
+        "Application Selection", ["Select Application", "Caltrans"], key="application", label_visibility="collapsed"
     )
     vAR_LLM_model = st.selectbox(
-        "",
+        "LLM Model Selection",
         [
             "LLM Models",
             "gpt-3.5-turbo-16k-0613",
@@ -93,14 +94,16 @@ with st.sidebar:
             "gpt-4-0314",
         ],
         key="text_llmmodel",
+        label_visibility="collapsed"
     )
     vAR_LLM_framework = st.selectbox(
-        "", ["LLM Framework", "Langchain"], key="text_framework"
+        "LLM Framework Selection", ["LLM Framework", "Langchain"], key="text_framework", label_visibility="collapsed"
     )
     vAR_Gcp_cloud = st.selectbox(
-        "",
+        "GCP Services Selection",
         ["GCP Services Used", "VM Instance", "Computer Engine", "Cloud Storage"],
         key="text2",
+        label_visibility="collapsed"
     )
     st.markdown("#### ")
     href = """<form action="#">
@@ -135,7 +138,7 @@ if vAR_AI_application == "Caltrans":
 
     with col4:
         app_option = st.selectbox(
-            "",
+            "Usecase Selection",
             (
                 "Select the Usecase",
                 "CUCP Re-Evaluations",
@@ -154,6 +157,7 @@ if vAR_AI_application == "Caltrans":
                 "Project Delivery Evaluator V2",
             ),
             key="app_select",
+            label_visibility="collapsed"
         )
         st.write("## ")
 else:
@@ -1451,7 +1455,7 @@ if app_option != "Select the Usecase":
                         st.session_state.pde_kb_text = load_delivery_method_kb()
                 
                 # Role Selection
-                pde_role = st.radio("View Perspective", ["District Team (Internal)", "HQ Reviewer (Validation)"], horizontal=True, key="pde_role")
+                pde_role = st.radio("View Perspective", ["District Team (Internal)", "Human in the feedback loop"], horizontal=True, key="pde_role")
                 pde_report_mode = "Template Summary + Method Sheets (V2)" if is_pde_v2_menu else "Current Report (V1)"
 
                 # Run evaluation button
@@ -1614,52 +1618,192 @@ if app_option != "Select the Usecase":
                             },
                         }
 
-                        st.subheader(f"Alternative Delivery Nomination Fact Sheet: {project_name}")
+                        # === V2 TEMPLATE UI ===
+                        st.markdown("### Project Delivery Selection Tool")
+                        st.markdown("#### Project Summary Worksheet")
+
+                        # 1. Instructions
+                        st.markdown("""
+                        <div style="border: 1px solid #ccc; padding: 10px; font-size: 0.85rem; background-color: #fcfcfc; margin-bottom: 20px;">
+                        <strong>INSTRUCTIONS</strong><br/>
+                        1. On the Project Summary Worksheet, complete the date of the review, project name, and selection committee members.<br/>
+                        2. Answer all questions on Worksheet 1. Record the score for each delivery method on the form as indicated.<br/>
+                        <i>Note: if any one of the answers is "No-Go," the delivery method need not be considered further for that project.</i><br/>
+                        3. After all the questions are answered, total the score for each delivery system and transfer the totals to the Scoring Summary section on the Project Summary Worksheet.<br/>
+                        4. Repeat steps 2 and 3 for Worksheet 2.<br/>
+                        5. Total the scores from Worksheets 1 and 2 the in Scoring Summary section of the Project Summary Worksheet.<br/>
+                        6. Select the project delivery method with the highest score and record any important selection committee comments in the space provided.<br/>
+                        <br/>
+                        <i>Note: Complete one project delivery selection questionnaire for each unique project...</i>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                        # 2. Project Info
+                        col1, col2 = st.columns([1, 2])
+                        with col1:
+                            st.text_input("Project Name", value=project_name, disabled=True)
+                            st.text_input("Date of Review", value=datetime.date.today().strftime("%m/%d/%y"), disabled=True)
+                        with col2:
+                            st.text_area("Selection CommitteeMembers", value="", height=100, placeholder="Enter names...")
                         
-                        template_rows = []
+                        st.write("---")
+
+                        # 2. Project Headers
+                        st.markdown(f"""
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <h2 style="margin: 0; font-size: 1.4rem;">Project Delivery Selection Tool</h2>
+                            <h3 style="margin: 0; font-size: 1.2rem;">Project Summary Worksheet</h3>
+                        </div>
+                        <div style="margin-bottom: 15px; font-family: monospace;">
+                            <div style="border-bottom: 1px solid #000; margin-bottom: 10px;">Project Name: {project_name}</div>
+                            <div style="border-bottom: 1px solid #000; margin-bottom: 10px;">Date of Review: {datetime.date.today().strftime("%m/%d/%y")}</div>
+                            <div style="border-bottom: 1px solid #000; height: 100px;">Selection Committee:</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 3. Scoring Summary Table
+                        # Pre-calculate scores for UI table
+                        ws1_scores = {m: 0 for m in method_labels}
+                        ws2_scores = {m: 0 for m in method_labels}
+                        from src.project_delivery_evaluator import METHOD_AFFINITY
+                        
                         for q in RUBRIC_QUESTIONS:
                             qid = q["id"]
                             sec = qid[0]
+                            sel = rating_index.get(qid, {}).get("selected_rating", "B").upper()
+                            for m in method_labels:
+                                pts = METHOD_AFFINITY.get(sec, {}).get(m, {}).get(sel, 0.5) * 10
+                                if sec == "A": ws1_scores[m] += pts
+                                else: ws2_scores[m] += pts
+
+                        summary_cols_html = "".join([f"<th colspan='2' style='text-align: center; border: 1px solid #000; padding: 5px; font-size: 0.8rem;'>{m}</th>" for m in method_labels])
+                        
+                        def get_row_html(label, scores_dict, is_total=False):
+                            style = "font-weight: bold; color: blue;" if is_total else "font-weight: bold;"
+                            row = f"<tr style='border: 1px solid #000; {style}'>"
+                            row += f"<td style='padding: 8px; border: 1px solid #000;'>{label}</td>"
+                            for m in method_labels:
+                                val = round(scores_dict[m]) if scores_dict else round(ws1_scores[m] + ws2_scores[m])
+                                row += f"<td colspan='2' style='text-align: center; border: 1px solid #000;'>{val}</td>"
+                            row += "</tr>"
+                            return row
+
+                        summary_html = f"""
+                        <table style="width:100%; border-collapse: collapse; font-family: sans-serif; margin-bottom: 20px;">
+                            <thead>
+                                <tr>
+                                    <th rowspan="2" style="text-align: center; border: 1px solid #000; padding: 10px;">SCORING SUMMARY</th>
+                                    {summary_cols_html}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {get_row_html("Project Scope and Characteristic Score (Worksheet 1)", ws1_scores)}
+                                {get_row_html("Success Criteria Score (Worksheet 2)", ws2_scores)}
+                                {get_row_html("Total Score", None, True)}
+                            </tbody>
+                        </table>
+                        """
+                        st.markdown(summary_html, unsafe_allow_html=True)
+                        
+                        st.markdown("<b>Final Selection:</b>", unsafe_allow_html=True)
+                        st.write("  ".join([f"☐ {m}" for m in method_labels]))
+                        st.markdown("<br><b>Comments:</b><div style='border-bottom: 1px solid #000; height: 60px;'></div>", unsafe_allow_html=True)
+
+                        # 4. Questionnaire
+                        st.markdown("<hr style='border: 1px solid #000;'>", unsafe_allow_html=True)
+                        
+                        q_table_html = """
+                        <style>
+                            .parity-table { width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 0.85rem; border: 1px solid #000; }
+                            .parity-table td, .parity-table th { border: 1px solid #000; padding: 8px; }
+                            .parity-header { background-color: #f8f9fa; }
+                            .id-cell { text-align: right; font-size: 0.7rem; padding-right: 2px !important; width: 40px; border-right: none !important; }
+                            .box-cell { text-align: center; font-weight: bold; width: 40px; border-left: none !important; }
+                            .section-header { color: blue; font-weight: bold; background-color: #fcfcfc; }
+                            .q-row-text { font-weight: bold; font-size: 0.9rem; width: 45%; }
+                            .opt-row-text { font-size: 0.82rem; padding-left: 15px !important; width: 45%; }
+                            .subtotal-row { background-color: #fefefe; font-style: italic; font-weight: bold; font-size: 0.8rem; }
+                            .total-row { background-color: #f0f7ff; font-weight: bold; color: blue; }
+                        </style>
+                        <table class="parity-table">
+                        """
+                        
+                        # Add sub-header for methods (1st column + 6*2 method columns = 13 columns)
+                        q_table_html += "<tr class='parity-header'><th></th>"
+                        for m in method_labels:
+                            q_table_html += f"<th colspan='2' style='text-align: center; font-weight: bold;'>{m}</th>"
+                        q_table_html += "</tr>"
+
+                        # Worksheet 1
+                        q_table_html += "<tr><td colspan='13' style='text-align: center; font-weight: bold; border-top: 2px solid #000; border-bottom: 2px solid #000;'>WORKSHEET 1 - PROJECT SCOPE AND CHARACTERISTICS</td></tr>"
+                        q_table_html += "<tr><td colspan='13' class='section-header' style='background-color: #fff;'>A. Project Scope and Characteristic Criteria</td></tr>"
+                        
+                        for q in RUBRIC_QUESTIONS:
+                            qid = q["id"]
+                            if qid == "B1": # Start Worksheet 2
+                                # WS1 Subtotal row (13 columns)
+                                q_table_html += "<tr class='subtotal-row'><td>Project Characteristics Subtotal (Total Questions A1-A10)</td>"
+                                for m in method_labels:
+                                    q_table_html += f"<td class='id-cell'>SCORE</td><td class='box-cell'>{round(ws1_scores[m])}</td>"
+                                q_table_html += "</tr>"
+                                
+                                q_table_html += "<tr><td colspan='13' style='height: 20px; border: none;'></td></tr>"
+                                q_table_html += "<tr><td colspan='13' style='text-align: center; font-weight: bold; border: 1px solid #000;'>WORKSHEET 2 - EVALUATION OF SUCCESS CRITERIA</td></tr>"
+                            
+                            if qid in ["B1", "C1", "D1", "E1", "F1"]:
+                                section_titles = {
+                                    "B1": "B. Schedule Issues",
+                                    "C1": "C. Opportunity for Innovation",
+                                    "D1": "D. Quality Enhancement",
+                                    "E1": "E. Cost Issues",
+                                    "F1": "F. Staffing Issues"
+                                }
+                                q_table_html += f"<tr><td colspan='13' class='section-header' style='background-color: #fff;'>{section_titles[qid]}</td></tr>"
+
                             robj = rating_index.get(qid, {})
                             sel_rating = robj.get("selected_rating", "").upper()
                             
-                            # 1. Question Header Row
-                            q_row = {
-                                "ID": qid,
-                                "Text": q["question"],
-                            }
-                            # Set methods to empty for header
-                            for m in method_labels: q_row[m] = ""
-                            q_row["Selected"] = ""
-                            template_rows.append(q_row)
-
-                            # 2. Option Rows (A, B, C)
-                            for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
+                            # Calculate rowspan (1 for question + number of options)
+                            opt_keys = [o for o in ["option_a", "option_b", "option_c"] if q.get(o)]
+                            rowspan = 1 + len(opt_keys)
+                            
+                            # Question row (13 columns, but 12 are rowspanned)
+                            q_table_html += f"<tr><td class='q-row-text'>{qid}. {q['question']}</td>"
+                            for m in method_labels:
+                                # Apply rowspan to the method columns. Set vertical-align: top for clean look.
+                                # Removed redundant {qid}. as per user request
+                                
+                                # Fetch affinity score and scale to 5.0 for display
+                                sec_code = qid[0] if qid else "A"
+                                affinity = METHOD_AFFINITY.get(sec_code, {}).get(m, {}).get(sel_rating, 0.5)
+                                points = round(affinity * 5, 1)
+                                
+                                rating_display = f"{sel_rating} ({points})" if sel_rating else ""
+                                q_table_html += f"<td rowspan='{rowspan}' class='id-cell' style='vertical-align: top;'></td><td rowspan='{rowspan}' class='box-cell' style='vertical-align: top;'>{rating_display}</td>"
+                            q_table_html += "</tr>"
+                            
+                            # Option rows (Now only need the first column)
+                            for opt_key in ["A", "B", "C"]:
+                                opt_label = f"option_{opt_key.lower()}"
                                 opt_text = q.get(opt_label, "")
                                 if not opt_text: continue
-                                
-                                o_row = {
-                                    "ID": "",
-                                    "Text": f"({opt_key}) {opt_text}",
-                                }
-                                # Add points in brackets for THIS SPECIFIC option (simulating the 'extension' sheet)
-                                if len(method_labels) == 1:
-                                    method = method_labels[0]
-                                    opt_fit = affinity.get(sec, {}).get(method, {}).get(opt_key, 0.5)
-                                    o_row["Text"] += f" [{opt_fit * 10.0:.1f} pts]"
-                                
-                                for method in method_labels:
-                                    o_row[method] = "✓" if opt_key == sel_rating else ""
-                                
-                                template_rows.append(o_row)
-                            
-                            # Spacer for visual separation in UI
-                            template_rows.append({"ID": "", "Text": "", "Selected": ""})
+                                q_table_html += f"<tr><td class='opt-row-text'>☐ {opt_key}. {opt_text}</td></tr>"
+                        
+                        # WS2 Subtotal row (13 columns)
+                        q_table_html += "<tr class='subtotal-row'><td>Success Criteria Subtotal (Total questions B-F)</td>"
+                        for m in method_labels:
+                            q_table_html += f"<td class='id-cell'>SCORE</td><td class='box-cell'>{round(ws2_scores[m])}</td>"
+                        q_table_html += "</tr>"
+                        
+                        # Grand Total row (13 columns)
+                        q_table_html += "<tr class='total-row'><td>GRAND TOTAL</td>"
+                        for m in method_labels:
+                            q_table_html += f"<td class='id-cell'></td><td class='box-cell' style='background-color: #eef; font-size: 1.1rem;'>{round(ws1_scores[m] + ws2_scores[m])}</td>"
+                        q_table_html += "</tr>"
 
-                        st.dataframe(pd.DataFrame(template_rows), use_container_width=True, hide_index=True)
-                        if missing:
-                            st.info(f"Missing information flagged for {len(missing)} question(s). See V2 workbook method sheets for detail.")
-                        st.caption("V2 UI mirrors the template questionnaire. Detailed confidence and suitability elaboration are provided in the downloaded workbook (separate method sheets).")
+                        st.markdown(q_table_html, unsafe_allow_html=True)
+                        
+                        st.caption("UI overhaul complete: redundancy removed and spacing improved for non-congested results.")
 
                     else:
                         # --- Override Notes (if rules fired) ---
@@ -1748,8 +1892,8 @@ if app_option != "Select the Usecase":
                                 if bc and bc.get("is_close"):
                                     st.warning(f"⚠ Top methods are within {bc['score_gap']:.4f} of each other — recommend detailed project-specific comparison.")
 
-                        # === VALIDATION MODE (Req 3.3 / 3.7) — Only for HQ Reviewer role ===
-                        if pde_role == "HQ Reviewer (Validation)" and validation_data:
+                        # === VALIDATION MODE (Req 3.3 / 3.7) — Only for Human role ===
+                        if pde_role == "Human (Validation)" and validation_data:
                             with st.expander("🔍 Validation Report — AI vs District Ratings", expanded=True):
                                 summary = validation_data.get("summary", {})
                                 rate = summary.get("agreement_rate", 0)
@@ -1961,18 +2105,19 @@ if app_option != "Select the Usecase":
                                 )
                                 st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation_v2.xlsx"
                             except Exception as v2_err:
-                                st.warning(
-                                    f"V2 template export failed ({v2_err}). Falling back to V1 export. "
-                                    "Set PDE_V2_TEMPLATE_PATH to a valid .xls/.xlsx template path."
-                                )
+                                st.error(f"Critical error during V2 Excel generation: {v2_err}")
+                                excel_buf = None
+                        else:
+                            # V1 Export (Legacy)
+                            try:
                                 excel_buf = build_evaluation_excel(
                                     eval_result, recommendation, project_name,
                                     multi_method_data=multi_method_data,
                                     validation_data=validation_data,
                                 )
-                                st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation.xlsx"
+                                st.session_state.pde_excel_filename = f"{project_name.replace(' ', '_')}_delivery_evaluation_v1.xlsx"
                             except Exception as v1_err:
-                                st.error(f"Critical error during Excel generation: {v1_err}")
+                                st.error(f"Critical error during V1 Excel generation: {v1_err}")
                                 excel_buf = None
 
                         if excel_buf:

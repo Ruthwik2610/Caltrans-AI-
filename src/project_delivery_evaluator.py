@@ -437,22 +437,25 @@ For each of the 25 questions, follow this chain-of-thought:
 When a question has no direct evidence, check if related questions provide indirect evidence. For example, if A3 (complexity) has evidence of high complexity, that indirectly supports higher ratings for C1 (innovation opportunity) and B1 (fast-tracking benefit).
 
 EXAMPLE 1 - Question A2 (Project Size):
-extracted_evidence: "The construction capital cost is estimated at $45 million."
-rubric_analysis: "$45M falls between $25M and $75M per Caltrans thresholds for A2."
+source_reasoning: "The construction capital cost is estimated at $45 million."
+missing_info_reasoning: "Funding is confirmed for construction, but no specific utility relocation estimates are provided yet."
+effect_on_method: "$45M falls within the standard Design-Build range. The confirmed funding favors Design-Build over traditional DBB for better cost control."
 selected_rating: "B"
 confidence: 0.95
 missing_info: false
 
 EXAMPLE 2 - Question A7 (Utility/Third-Party Issues):
-extracted_evidence: "The project requires coordination with BNSF railroad for track closures and PG&E for gas line relocation. Multiple utility relocations are anticipated."
-rubric_analysis: "Railroad and utility coordination involving multiple parties goes beyond typical. Two major utility entities plus railroad suggests 'More than typical' but not necessarily 'Much more than typical' unless additional complexity exists."
+source_reasoning: "The project requires coordination with BNSF railroad for track closures and PG&E for gas line relocation. Multiple utility relocations are anticipated."
+missing_info_reasoning: "Specific right-of-way entry agreements with BNSF are not yet in place."
+effect_on_method: "Railroad and utility coordination involving multiple parties goes beyond typical. CMGC or PDB would be beneficial to bring in a contractor early to manage these risks."
 selected_rating: "B"
 confidence: 0.85
 missing_info: false
 
 EXAMPLE 3 - Question C1 (Innovation) with missing info:
-extracted_evidence: "No explicit discussion of innovation opportunities found in the narrative."
-rubric_analysis: "The narrative does not address innovation. Based on the project's complexity (if A3 suggests moderate complexity) and highway scope, moderate innovation potential is plausible but unconfirmed."
+source_reasoning: "No explicit discussion of innovation opportunities found in the narrative."
+missing_info_reasoning: "The narrative lacks a section on innovation potential or alternative technical concepts."
+effect_on_method: "The narrative does not address innovation. Based on the project's complexity (if A3 suggests moderate complexity) and highway scope, moderate innovation potential is plausible but unconfirmed."
 selected_rating: "B"
 confidence: 0.35
 missing_info: true"""
@@ -468,7 +471,7 @@ missing_info: true"""
         existing_ratings_text = f"""
 DISTRICT PRE-FILLED RATINGS:
 The district has pre-filled these ratings: {ratings_str}
-Evaluate independently based on the evidence. After your independent evaluation, if your rating differs from the district's, note the disagreement in your rubric_analysis."""
+Evaluate independently based on the evidence. After your independent evaluation, if your rating differs from the district's, note the disagreement in your effect_on_method."""
 
     output_schema = """OUTPUT FORMAT:
 You must output ONLY valid JSON in the following format. Replace all placeholders with real values extracted from the narrative.
@@ -482,8 +485,9 @@ You must output ONLY valid JSON in the following format. Replace all placeholder
     {
       "question_id": "A1",
       "question_text": "Where is the Project in the project development process?",
-      "extracted_evidence": "<direct quote or summary from narrative, or 'No direct evidence found'>",
-      "rubric_analysis": "<chain-of-thought reasoning explaining how the evidence maps to the selected rating>",
+      "source_reasoning": "<direct quote or summary from narrative, or 'No direct evidence found'>",
+      "missing_info_reasoning": "<explicit explanation of what information is missing or 'None'>",
+      "effect_on_method": "<analysis of how this rating affects the suitability of the delivery method and comparison to rubric norms>",
       "selected_rating": "A or B or C",
       "confidence": 0.0 to 1.0,
       "missing_info": true or false
@@ -654,7 +658,7 @@ def compute_delivery_recommendation(ratings: list) -> dict:
 # Values: 1.0 = strongly favors, 0.5 = neutral, 0.0 = disfavors.
 # A rating of "C" (high complexity/need) is mapped using the "C" column;
 # "A" (simple/traditional) uses the "A" column; "B" interpolates.
-_METHOD_AFFINITY = {
+METHOD_AFFINITY = {
     # Section A: Project Scope & Characteristics — high complexity favors CMGC/DB/PDB
     "A": {
         "Design-Bid-Build":        {"A": 1.0, "B": 0.6, "C": 0.1},
@@ -784,7 +788,7 @@ def score_all_methods(ratings: list) -> dict:
         key_factors = []
         for sec, weight in SECTION_WEIGHTS.items():
             dominant = section_dominant.get(sec, "B")
-            affinity = _METHOD_AFFINITY.get(sec, {}).get(method, {}).get(dominant, 0.5)
+            affinity = METHOD_AFFINITY.get(sec, {}).get(method, {}).get(dominant, 0.5)
             contribution = affinity * weight
             weighted_sum += contribution
             if affinity >= 0.8:
@@ -1352,6 +1356,8 @@ def build_evaluation_excel(eval_data: dict, recommendation: dict, project_name: 
                            multi_method_data: dict = None, validation_data: dict = None) -> BytesIO:
     """Build a styled 5-sheet Excel workbook with full analysis."""
     import openpyxl
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    center = Alignment(horizontal="center", vertical="center")
     wb = openpyxl.Workbook()
     wb.remove(wb.active)
 
@@ -1605,85 +1611,541 @@ def _safe_sheet_title(title: str) -> str:
     return safe[:31]
 
 
+def _apply_box_border(ws, start_row, start_col, end_row, end_col):
+    """Utility to apply a thin border around a rectangular range of cells."""
+    from openpyxl.styles import Border, Side
+    thin = Side(border_style="thin", color="000000")
+    for r in range(start_row, end_row + 1):
+        for c in range(start_col, end_col + 1):
+            cell = ws.cell(row=r, column=c)
+            # Maintain existing border if any
+            current = cell.border
+            new_top = thin if r == start_row else current.top
+            new_bottom = thin if r == end_row else current.bottom
+            new_left = thin if c == start_col else current.left
+            new_right = thin if c == end_col else current.right
+            cell.border = Border(top=new_top, bottom=new_bottom, left=new_left, right=new_right)
+
+def _populate_v2_summary_sheet(ws, q_list, rating_index, method_labels, project_name, multi_method_data, eval_data=None):
+    """
+    Specifically populates the 'Project Summary Worksheet' following the provided images.
+    """
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    from openpyxl.utils import get_column_letter
+    
+    # Standard styles for this sheet
+    thin = Side(border_style="thin", color="000000")
+    bdr = Border(top=thin, left=thin, right=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+    wrap = Alignment(wrap_text=True, vertical="top")
+    blue_header = Font(bold=True, size=11, color="0000FF")
+    # Grey-White Theme Colors
+    grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    grey_bold = Font(bold=True, color="333333")
+
+    # Column widths for "de-congested" look
+    ws.column_dimensions['A'].width = 75
+    ws.column_dimensions['B'].width = 25
+    for ci in range(len(method_labels)):
+        col_letter = get_column_letter(3 + ci*2 + 1)
+        ws.column_dimensions[col_letter].width = 15.0
+
+    # 1. INSTRUCTIONS
+    ws.cell(row=1, column=1, value="INSTRUCTIONS").font = Font(bold=True)
+    ws.cell(row=1, column=1).alignment = center
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=14)
+    
+    instructions = [
+        "1. On the Project Summary Worksheet, complete the date of the review, project name, and selection committee members.",
+        "2.  Answer all questions on Worksheet 1.  Record the score for each delivery method on the form as indicated.",
+        "Note: if any one of the answers is \"No-Go,\" the delivery method need not be considered further for that project.",
+        "3. After all the questions are answered, total the score for each delivery system and transfer the totals to the Scoring Summary section on the Project Summary Worksheet.",
+        "4. Repeat steps 2 and 3 for Worksheet 2.",
+        "5. Total the scores from Worksheets 1 and 2 the in Scoring Summary section of the Project Summary Worksheet.",
+        "6. Select the project delivery method with the highest score and record any important selection committee comments in the space provided.",
+        "Note: Complete one project delivery selection questionnaire for each unique project. If multiple project alternatives or subprojects are being considered, complete one questionnaire for each unique variation."
+    ]
+    for i, text in enumerate(instructions, 2):
+        cell = ws.cell(row=i, column=1, value=text)
+        cell.font = Font(size=9)
+        ws.merge_cells(start_row=i, start_column=1, end_row=i, end_column=14)
+    
+    # Box the instructions
+    # Style definitions to prevent NameErrors
+    thin = Side(border_style="thin", color="000000")
+    bold_font = Font(bold=True)
+    grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    center = Alignment(horizontal="center", vertical="center")
+    
+    curr = 12
+    # 2. Project Headers
+    tool_title = ws.cell(row=curr, column=4, value="Project Delivery Selection Tool")
+    tool_title.font = Font(bold=True, size=12)
+    tool_title.alignment = center
+    ws.merge_cells(start_row=curr, start_column=4, end_row=curr, end_column=10)
+    
+    ws.cell(row=curr+1, column=4, value="Project Summary Worksheet").font = Font(bold=True, size=11)
+    ws.cell(row=curr+1, column=4).alignment = center
+    ws.merge_cells(start_row=curr+1, start_column=4, end_row=curr+1, end_column=10)
+    
+    # 2. Project Headers (Identity Table)
+    curr += 1
+    # Define identity rows
+    district = eval_data.get("district", "N/A") if eval_data else "N/A"
+    ea_num = eval_data.get("project_ea", "N/A") if eval_data else "N/A"
+    
+    identity = [
+        ("Project Name:", project_name if project_name else "N/A"),
+        ("Project District:", district),
+        ("Project EA:", ea_num),
+        ("Date of Review:", datetime.date.today().strftime("%m/%d/%y")),
+    ]
+    
+    id_start_row = curr
+    for label, val in identity:
+        # Label cell
+        l_cell = ws.cell(row=curr, column=1, value=label)
+        l_cell.font = bold_font
+        l_cell.fill = grey_fill
+        l_cell.alignment = Alignment(horizontal="right")
+        
+        # Value cell
+        v_cell = ws.cell(row=curr, column=2, value=val)
+        v_cell.alignment = center
+        ws.merge_cells(start_row=curr, start_column=2, end_row=curr, end_column=4)
+        curr += 1
+    
+    _apply_box_border(ws, id_start_row, 1, curr-1, 4)
+    
+    curr += 1
+    ws.cell(row=curr, column=1, value="Review is based on AI evaluation of project documentation").font = Font(italic=True, size=9)
+    curr += 2
+    
+    # Committee Section
+    comm_start = curr
+    ws.cell(row=curr, column=1, value="Selection Committee Members:").font = bold_font
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=4)
+    curr += 1
+    for i in range(5):
+        ws.cell(row=curr, column=1, value=f"{i+1}.").alignment = Alignment(horizontal="right")
+        ws.cell(row=curr, column=2).border = Border(bottom=thin)
+        ws.merge_cells(start_row=curr, start_column=2, end_row=curr, end_column=4)
+        curr += 1
+    _apply_box_border(ws, comm_start, 1, curr-1, 4)
+    
+    curr += 2
+    # 3. SCORING SUMMARY
+    sum_hdr = ws.cell(row=curr, column=1, value="SCORING SUMMARY")
+    sum_hdr.font = Font(bold=True, size=11)
+    sum_hdr.alignment = center
+    sum_hdr.fill = header_fill
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=14)
+    curr += 1
+    
+    # Method Headers for Summary Table
+    table_start_row = curr
+    ws.cell(row=curr, column=1, value="EVALUATION FACTORS").font = bold_font
+    ws.cell(row=curr, column=1).alignment = center
+    ws.cell(row=curr, column=1).fill = grey_fill
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=2)
+
+    for ci, method in enumerate(method_labels):
+        col = 3 + ci*2
+        # Merge two columns for method label
+        h_cell = ws.cell(row=curr, column=col, value=method)
+        h_cell.font = bold_font
+        h_cell.fill = grey_fill
+        h_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        ws.merge_cells(start_row=curr, start_column=col, end_row=curr, end_column=col+1)
+    
+    # Question column must be wide
+    ws.column_dimensions["A"].width = 5
+    ws.column_dimensions["B"].width = 60
+    
+    # Increase row height for project headers to prevent cramping
+    for r in range(13, 20):
+        ws.row_dimensions[r].height = 25
+    
+    curr += 1
+    
+    # Pre-calculate scores per worksheet
+    ws1_scores = {m: 0 for m in method_labels}
+    ws2_scores = {m: 0 for m in method_labels}
+    
+    for q in q_list:
+        qid = q["id"]
+        sec = qid[0]
+        sel = rating_index.get(qid, {}).get("selected_rating", "B").upper()
+        for m in method_labels:
+            pts = METHOD_AFFINITY.get(sec, {}).get(m, {}).get(sel, 0.5) * 10
+            if sec == "A": ws1_scores[m] += pts
+            else: ws2_scores[m] += pts
+
+    summary_rows = [
+        ("Project Scope and Characteristic Score (Worksheet 1)", ws1_scores),
+        ("Success Criteria Score (Worksheet 2)", ws2_scores),
+        ("Total Score", None) # Handled separately for styling
+    ]
+    
+    for label, score_dict in summary_rows:
+        label_cell = ws.cell(row=curr, column=1, value=label)
+        label_cell.font = bold_font if score_dict else Font(bold=True, color="000000")
+        label_cell.alignment = Alignment(wrap_text=True, horizontal="left", vertical="center")
+        ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=2)
+        
+        for ci, m in enumerate(method_labels):
+            col = 3 + ci*2
+            val = round(score_dict[m]) if score_dict else round(ws1_scores[m] + ws2_scores[m])
+            c = ws.cell(row=curr, column=col, value=val)
+            c.font = bold_font
+            c.alignment = center
+            if not score_dict: # Total row
+                c.fill = grey_fill
+            ws.merge_cells(start_row=curr, start_column=col, end_row=curr, end_column=col+1)
+        curr += 1
+    
+    # Apply borders to summary table
+    _apply_box_border(ws, table_start_row, 1, curr-1, 3 + len(method_labels)*2 - 1)
+    
+    curr += 1
+    ws.cell(row=curr, column=1, value="Final Selection:").font = bold_font
+    curr += 1
+    for ci, m in enumerate(method_labels):
+        col = 1 + ci*2
+        ws.cell(row=curr, column=col, value=f"☐ {m}").font = Font(size=9)
+    curr += 2
+    
+    ws.cell(row=curr, column=1, value="Comments:").font = bold_font
+    for _ in range(4):
+        ws.cell(row=curr, column=2).border = Border(bottom=thin)
+        ws.merge_cells(start_row=curr, start_column=2, end_row=curr, end_column=14)
+        curr += 1
+
+    curr += 2
+    _v2_draw_questionnaire(ws, curr, q_list, rating_index, method_labels, ws1_scores, ws2_scores)
+
+
+def _v2_draw_questionnaire(ws, start_row, q_list, rating_index, method_labels, ws1_scores, ws2_scores):
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+    thin = Side(border_style="thin", color="000000")
+    bdr = Border(top=thin, left=thin, right=thin, bottom=thin)
+    center = Alignment(horizontal="center", vertical="center")
+    bold_font = Font(bold=True)
+    
+    # Theme Colors
+    grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    curr = start_row
+    
+    # Worksheet 1
+    ws.cell(row=curr, column=1, value="WORKSHEET 1").font = bold_font
+    ws.cell(row=curr, column=1).alignment = center
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=14)
+    curr += 1
+    ws.cell(row=curr, column=1, value="EVALUATION OF PROJECT SCOPE AND CHARACTERISTICS").font = bold_font
+    ws.cell(row=curr, column=1).alignment = center
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=14)
+    curr += 2
+
+    # Section A
+    s_cell = ws.cell(row=curr, column=1, value="Project Scope and Characteristic Criteria")
+    s_cell.font = bold_font
+    s_cell.fill = header_fill
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=2)
+    
+    # Method Headers
+    for ci, method in enumerate(method_labels):
+        col = 3 + ci*2
+        c = ws.cell(row=curr, column=col, value=method)
+        c.font = Font(bold=True, size=9)
+        c.fill = grey_fill
+        c.alignment = Alignment(wrap_text=True, horizontal="center")
+        ws.merge_cells(start_row=curr, start_column=col, end_row=curr, end_column=col+1)
+    
+    _apply_box_border(ws, curr, 1, curr, 3 + len(method_labels)*2 - 1)
+    curr += 2
+    
+    a_questions = [q for q in q_list if q['id'].startswith("A")]
+    for q in a_questions:
+        qid = q["id"]
+        sel_rating = rating_index.get(qid, {}).get("selected_rating", "B").upper()
+        
+        start_r = curr
+        # Draw Question
+        ws.cell(row=curr, column=1, value=f"{qid}. {q['question']}").font = bold_font
+        ws.cell(row=curr, column=1).alignment = wrap
+        curr += 1
+        
+        # Draw Options
+        opts_rendered = 0
+        for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
+            opt_text = q.get(opt_label, "")
+            if opt_text:
+                ws.cell(row=curr, column=1, value=f"☐ {opt_key}. {opt_text}").font = Font(size=8)
+                curr += 1
+                opts_rendered += 1
+        
+        # Total rows for this question (Question + Options)
+        end_r = curr - 1
+        
+        for ci, method in enumerate(method_labels):
+            col = 3 + ci*2
+            # Calculate points
+            affinity = METHOD_AFFINITY.get("A", {}).get(method, {}).get(sel_rating, 0.5)
+            pts = round(affinity * 5, 1)
+            display_val = f"{sel_rating} ({pts})" if sel_rating else ""
+            
+            # ID cell (Merge vertically, leave empty)
+            if start_r != end_r:
+                ws.merge_cells(start_row=start_r, start_column=col, end_row=end_r, end_column=col)
+            ws.cell(row=start_r, column=col).border = Border(left=thin, top=thin, bottom=thin)
+            
+            # Box cell (Merge vertically, show rating + points)
+            if start_r != end_r:
+                ws.merge_cells(start_row=start_r, start_column=col+1, end_row=end_r, end_column=col+1)
+            c = ws.cell(row=start_r, column=col+1, value=display_val)
+            c.font = bold_font
+            c.border = Border(right=thin, top=thin, bottom=thin)
+            c.alignment = center
+            
+        curr += 1 # Spacer row
+
+    # SCORE Row for WS1
+    ws.cell(row=curr, column=1, value="Project Characteristics Subtotal (Total Questions A1-A10)").font = Font(italic=True, size=9)
+    ws.cell(row=curr, column=2, value="SCORE").font = bold_font
+    for ci, m in enumerate(method_labels):
+        col = 3 + ci*2
+        c = ws.cell(row=curr, column=col+1, value=round(ws1_scores[m]))
+        c.font = bold_font
+        c.alignment = center
+        c.border = Border(bottom=thin)
+    curr += 4
+
+    # Worksheet 2
+    ws.cell(row=curr, column=1, value="WORKSHEET 2").font = bold_font
+    ws.cell(row=curr, column=1).alignment = center
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=14)
+    curr += 1
+    ws.cell(row=curr, column=1, value="EVALUATION OF SUCCESS CRITERIA").font = bold_font
+    ws.cell(row=curr, column=1).alignment = center
+    ws.merge_cells(start_row=curr, start_column=1, end_row=curr, end_column=14)
+    curr += 2
+
+    other_sections = [
+        ("B", "Schedule Issues"),
+        ("C", "Opportunity for Innovation"),
+        ("D", "Quality Enhancement"),
+        ("E", "Cost Issues"),
+        ("F", "Staffing Issues")
+    ]
+    
+    for prefix, section_title in other_sections:
+        ws.cell(row=curr, column=1, value=f"{prefix} - {section_title}").font = bold_font
+        # Headers
+        for ci, method in enumerate(method_labels):
+            col = 3 + ci*2
+            c = ws.cell(row=curr, column=col, value=method)
+            c.font = Font(bold=True, size=8)
+            c.alignment = center
+            ws.merge_cells(start_row=curr, start_column=col, end_row=curr, end_column=col+1)
+        curr += 1
+        
+        sec_questions = [q for q in q_list if q['id'].startswith(prefix)]
+        for q in sec_questions:
+            qid = q["id"]
+            sel_rating = rating_index.get(qid, {}).get("selected_rating", "B").upper()
+            
+            start_r = curr
+            # Question text
+            ws.cell(row=curr, column=1, value=f"{qid}. {q['question']}").font = bold_font
+            ws.cell(row=curr, column=1).alignment = wrap
+            curr += 1
+            
+            # Options
+            for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
+                opt_text = q.get(opt_label, "")
+                if opt_text:
+                    ws.cell(row=curr, column=1, value=f"☐ {opt_key}. {opt_text}").font = Font(size=8)
+                    curr += 1
+            
+            # Total rows for this question
+            end_r = curr - 1
+            
+            for ci, method in enumerate(method_labels):
+                col = 3 + ci*2
+                # Calculate points
+                affinity = METHOD_AFFINITY.get(prefix, {}).get(method, {}).get(sel_rating, 0.5)
+                pts = round(affinity * 5, 1)
+                display_val = f"{sel_rating} ({pts})" if sel_rating else ""
+                
+                # ID cell (Merge vertically, leave empty)
+                if start_r != end_r:
+                    ws.merge_cells(start_row=start_r, start_column=col, end_row=end_r, end_column=col)
+                ws.cell(row=start_r, column=col).border = Border(left=thin, top=thin, bottom=thin)
+                
+                # Box cell (Merge vertically, show rating + points)
+                if start_r != end_r:
+                    ws.merge_cells(start_row=start_r, start_column=col+1, end_row=end_r, end_column=col+1)
+                c = ws.cell(row=start_r, column=col+1, value=display_val)
+                c.font = bold_font
+                c.border = Border(right=thin, top=thin, bottom=thin)
+                c.alignment = center
+            
+            curr += 1 # Spacer row
+
+    # SCORE Row for WS2
+    ws.cell(row=curr, column=1, value="Success Criteria Subtotal (Total questions B-F)").font = Font(italic=True, size=9)
+    ws.cell(row=curr, column=2, value="SCORE").font = bold_font
+    for ci, m in enumerate(method_labels):
+        col = 3 + ci*2
+        c = ws.cell(row=curr, column=col+1, value=round(ws2_scores[m]))
+        c.font = bold_font
+        c.alignment = center
+        c.border = Border(bottom=thin)
+    curr += 2
+    
+    ws.cell(row=curr, column=2, value="TOTAL").font = Font(bold=True)
+    for ci, m in enumerate(method_labels):
+        col = 3 + ci*2
+        c = ws.cell(row=curr, column=col+1, value=round(ws1_scores[m] + ws2_scores[m]))
+        c.font = Font(bold=True)
+        c.fill = header_fill
+        c.alignment = center
+        c.border = bdr
+    curr += 2
+
 def _populate_rubric_sheet(ws, q_list, rating_index, method_labels=None, single_method=None, title=None, project_name=None):
     """
-    Helper to populate a worksheet with the full 25-question, 3-option rubric.
-    ws: worksheet
-    q_list: RUBRIC_QUESTIONS
-    rating_index: {qid: {selected_rating: 'A'}}
-    method_labels: List of labels for columns (if multiple)
-    single_method: If provided, show only this method's points
+    Overhauled individual method worksheet with 7-column layout:
+    ID, Criteria, Rating, Confidence, Source, Missing Info, effect.
     """
-    from openpyxl.styles import Font, Alignment, PatternFill
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
     
-    # Fill colors for header rows
-    hdr_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
-
-    # 1. Title/Project Header
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=9)
-    head_text = title if title else f"Evaluation Rubric: {project_name}"
-    title_cell = ws.cell(row=1, column=1, value=head_text)
-    title_cell.font = Font(bold=True, size=14, color="1F4E78")
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    # 2. Header Row
-    if method_labels:
-        col_headers = ["ID", "Questionnaire"] + method_labels + ["Selected Rating"]
-    elif single_method:
-        col_headers = ["ID", "Questionnaire", f"{single_method} Points", "Selected Rating"]
-    else:
-        col_headers = ["ID", "Questionnaire", "Selected Rating"]
-
-    _header_row(ws, 2, col_headers)
+    # Styles
+    box_border = Border(top=Side(style='thin'), left=Side(style='thin'), right=Side(style='thin'), bottom=Side(style='thin'))
+    thin_border = Side(style='thin')
+    center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    top_left_align = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    bold_font = Font(bold=True)
     
-    # 3. Data Rows
-    current_row = 3
+    # Theme Colors
+    header_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    grey_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    wrap = Alignment(wrap_text=True, vertical="top")
+
+    # 1. Header & Setup
+    ws.column_dimensions['A'].width = 6   # ID
+    ws.column_dimensions['B'].width = 50  # Criteria
+    ws.column_dimensions['C'].width = 10  # Rating
+    ws.column_dimensions['D'].width = 10  # Points
+    ws.column_dimensions['E'].width = 10  # Confid.
+    ws.column_dimensions['F'].width = 35  # Source Reasoning
+    ws.column_dimensions['G'].width = 30  # Missing Info
+    ws.column_dimensions['H'].width = 35  # Effect on Method
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+    title_cell = ws.cell(row=1, column=1, value=title if title else f"DETAILED EVALUATION: {single_method}")
+    title_cell.font = Font(bold=True, size=14)
+    title_cell.alignment = center_align
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=8)
+    sub_cell = ws.cell(row=2, column=1, value=f"Project: {project_name}" if project_name else "")
+    sub_cell.alignment = center_align
+
+    # 2. Table Headers
+    headers = ["ID", "EVALUATION CRITERIA", "RATING", "POINTS", "CONFID.", "SOURCE REASONING", "MISSING INFO", "EFFECT ON METHOD"]
+    for ci, h in enumerate(headers, 1):
+        c = ws.cell(row=4, column=ci, value=h)
+        c.font = bold_font
+        c.fill = header_fill
+        c.alignment = center_align
+        c.border = box_border
+    
+    current_row = 5
     for q in q_list:
         qid = q["id"]
         sec = qid[0]
         robj = rating_index.get(qid, {})
         sel_rating = robj.get("selected_rating", "").upper()
+        confidence = robj.get("confidence", 0.0)
         
-        # Question Header row
-        hdr_vals = [qid, q["question"]]
-        hdr_vals += [""] * (len(col_headers) - 2)
-        _data_row(ws, current_row, hdr_vals)
-        for c in range(1, len(col_headers) + 1):
-            ws.cell(row=current_row, column=c).font = Font(bold=True, size=10)
-            ws.cell(row=current_row, column=c).fill = hdr_fill
+        # Extract new reasoning fields
+        source_res = robj.get("source_reasoning", robj.get("extracted_evidence", "No evidence found"))
+        missing_res = robj.get("missing_info_reasoning", "None")
+        effect_res = robj.get("effect_on_method", robj.get("rubric_analysis", "Analysis N/A"))
+        
+        start_row = current_row
+        
+        # ID and Criteria
+        ws.cell(row=current_row, column=1, value=qid).font = bold_font
+        ws.cell(row=current_row, column=2, value=q["question"]).font = bold_font
         current_row += 1
-
-        # Option Rows (A, B, C)
+        
+        # Options
         for opt_key, opt_label in [("A", "option_a"), ("B", "option_b"), ("C", "option_c")]:
             opt_text = q.get(opt_label, "")
             if not opt_text: continue
-            
-            row_vals = ["", f"({opt_key}) {opt_text}"]
-            
-            if method_labels:
-                for m in method_labels:
-                    fit = _METHOD_AFFINITY.get(sec, {}).get(m, {}).get(opt_key, 0.5)
-                    row_vals.append(f"{fit * 10.0:.1f} pts")
-            elif single_method:
-                fit = _METHOD_AFFINITY.get(sec, {}).get(single_method, {}).get(opt_key, 0.5)
-                row_vals.append(f"{fit * 10.0:.1f} pts")
-            
-            # Indicator
-            row_vals.append("✓ Selected" if opt_key == sel_rating else "")
-            
-            _data_row(ws, current_row, row_vals)
-            # Alignment and text properties
-            ws.cell(row=current_row, column=2).alignment = Alignment(indent=2, wrap_text=True, vertical="top")
-            if opt_key == sel_rating:
-                for c in range(1, len(col_headers) + 1):
-                    ws.cell(row=current_row, column=c).font = Font(bold=True, color="00B050")
-            
-            current_row += 1
+            display_text = f"☐ {opt_key}. {opt_text}"
+            if single_method:
+                fit = METHOD_AFFINITY.get(sec, {}).get(single_method, {}).get(opt_key, 0.5)
+                display_text += f" [{fit * 10.0:.1f} pts]"
+        end_row = current_row - 1
         
-        # Spacer
-        current_row += 1
+        # Vertical Merging for ID and reasoning columns
+        for col in [1, 3, 4, 5, 6, 7, 8]:
+            if start_row != end_row:
+                ws.merge_cells(start_row=start_row, start_column=col, end_row=end_row, end_column=col)
+        
+        # Rating Cell (C)
+        affinity = METHOD_AFFINITY.get(sec, {}).get(single_method, {}).get(sel_rating, 0.5)
+        pts = round(affinity * 5, 1)
+        
+        c_rate = ws.cell(row=start_row, column=3, value=sel_rating)
+        c_rate.font = bold_font
+        c_rate.alignment = center_align
+        c_rate.border = box_border
+        
+        # Points Cell (D)
+        c_pts = ws.cell(row=start_row, column=4, value=pts)
+        c_pts.font = bold_font
+        c_pts.alignment = center_align
+        c_pts.border = box_border
+        
+        # Confidence Cell (E)
+        c_conf = ws.cell(row=start_row, column=5, value=f"{confidence:.2f}")
+        c_conf.alignment = center_align
+        c_conf.border = box_border
+        
+        # Source Reasoning (F)
+        c_src = ws.cell(row=start_row, column=6, value=source_res)
+        c_src.alignment = top_left_align
+        c_src.border = box_border
+        c_src.font = Font(size=9)
+        
+        # Missing Info (G)
+        c_miss = ws.cell(row=start_row, column=7, value=missing_res)
+        c_miss.alignment = top_left_align
+        c_miss.border = box_border
+        c_miss.font = Font(size=9)
+        
+        # Effect on Method (H)
+        c_eff = ws.cell(row=start_row, column=8, value=effect_res)
+        c_eff.alignment = top_left_align
+        c_eff.border = box_border
+        c_eff.font = Font(size=9)
+        
+        # Borders for Criteria column (B)
+        for r in range(start_row, end_row + 1):
+            ws.cell(row=r, column=2).border = Border(left=thin_border, right=thin_border, top=thin_border if r == start_row else None, bottom=thin_border if r == end_row else None)
 
-    # Final formatting
+        current_row += 1 # Spacer
+    ws.column_dimensions["L"].width = 10
+    ws.column_dimensions["M"].width = 12
+
     ws.column_dimensions["B"].width = 100
 
 
@@ -1768,26 +2230,27 @@ def build_evaluation_excel_v2(
         "Design-Build/Best-Value", "CM/GC", "Progressive Design-Build",
     ]
 
-    # 1. Evaluation Summary (The main overview)
+    # 1. Evaluation Summary (The main overview matching the template images)
     summary_ws = wb.create_sheet("Evaluation Summary")
-    _populate_rubric_sheet(
+    _populate_v2_summary_sheet(
         summary_ws, RUBRIC_QUESTIONS, rating_index, 
         method_labels=method_labels,
-        title=f"Alternative Delivery Nomination Fact Sheet: {project_name}",
-        project_name=project_name
+        project_name=project_name,
+        multi_method_data=multi_method_data,
+        eval_data=eval_data
     )
     
-    # 2. Detailed Method Sheets (The 'elaborations')
+    # 2. Detailed Method Sheets (The 'elaborations' as extensions)
     for method in method_labels:
         # Create a safe sheet name (e.g. 'DB-BV Evaluation')
         safe_name = method.replace("Design-Build/", "DB-").split("/")[0]
         if len(safe_name) > 20: safe_name = safe_name[:20]
-        m_ws = wb.create_sheet(f"{safe_name} Evaluation")
+        m_ws = wb.create_sheet(f"{safe_name} Extension")
         
         _populate_rubric_sheet(
             m_ws, RUBRIC_QUESTIONS, rating_index,
             single_method=method,
-            title=f"{method} Detailed Evaluation: {project_name}",
+            title=f"{method} Detailed Elaboration: {project_name}",
             project_name=project_name
         )
 
